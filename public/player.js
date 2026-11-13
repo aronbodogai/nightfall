@@ -123,25 +123,37 @@ function viewTown() {
   const v = V.vote;
   let voteCard = '';
   if (v && v.open) {
-    const canYes = V.me.alive || V.me.ghostVote;
-    voteCard = `<div class="card" style="border-color:var(--accent)"><h3>Vote now</h3>
+    const can = V.me.canVote;
+    const why = !V.me.alive
+      ? (can ? '👻 You are dead: voting EXECUTE spends your one ghost vote.' : (V.ghostVotes ? '💀 You are dead and have used your ghost vote, so you cannot vote.' : '💀 You are dead, so you cannot vote.'))
+      : '';
+    const hands = V.seats.map(s => {
+      const h = v.hands ? v.hands[s.pid] : undefined;
+      const state = !s.canVote ? 'novote' : h === true ? 'yes' : h === false ? 'no' : 'wait';
+      const label = { novote: '💀 cannot vote', yes: '✋ execute', no: 'no', wait: '…' }[state];
+      return `<div class="hand ${state}"><span>${esc(s.name)}</span><b>${label}</b></div>`;
+    }).join('');
+    voteCard = `<div class="card ${can ? '' : 'novote'}" style="border-color:var(--accent)"><h3>Vote now</h3>
       <h2>${esc(v.nominator)} nominated ${esc(v.nominee)}</h2>
-      <p class="small muted">${V.threshold} votes needed${V.block ? `; must beat ${V.block.votes} (${esc(V.block.name)})` : ''}. ${!V.me.alive ? (V.me.ghostVote ? 'Voting yes uses your one ghost vote.' : 'You have used your ghost vote.') : ''}</p>
-      <div class="grid2"><button class="${v.myVote === true ? 'okb' : ''}" style="min-height:64px" data-a="vote" data-v="1" ${canYes ? '' : 'disabled'}>✋ Execute</button>
-        <button class="${v.myVote === false ? 'danger' : ''}" style="min-height:64px" data-a="vote" data-v="0">✋ No</button></div>
-      <p class="center small muted">${v.myVote === null ? 'You have not voted.' : 'Your vote: ' + (v.myVote ? 'EXECUTE' : 'no')} · ${v.yes} hands up so far</p></div>`;
+      <div class="votebig">${v.yes} <span class="small muted">/ ${V.threshold} needed${V.block ? ` · must beat ${V.block.votes}` : ''}</span></div>
+      ${why ? `<p class="small" style="color:${can ? 'var(--warn)' : 'var(--muted)'}">${why}</p>` : ''}
+      <div class="grid2"><button class="${v.myVote === true ? 'okb' : ''}" style="min-height:64px" data-a="vote" data-v="1" ${can ? '' : 'disabled'}>✋ Execute</button>
+        <button class="${v.myVote === false ? 'danger' : ''}" style="min-height:64px" data-a="vote" data-v="0" ${can ? '' : 'disabled'}>No</button></div>
+      <p class="center small muted">${!can ? 'You are watching this vote.' : v.myVote === null ? 'You have not voted yet.' : 'Your vote: ' + (v.myVote ? 'EXECUTE' : 'no') + ' (you can change it until the Storyteller closes the vote)'}</p>
+      <div class="hands">${hands}</div></div>`;
   }
   const nominate = V.me.canNominate ? `<button class="good block" style="margin-bottom:12px" data-a="openNominate" ${V.pendingRequest ? 'disabled' : ''}>${V.pendingRequest ? 'Request sent — waiting for Storyteller' : '👉 Nominate a player'}</button>` : '';
   const seats = V.seats.map(s => `
-    <div class="item ${s.alive ? '' : 'dead'}"><span class="seat">${s.seat}</span>
-      <div class="main"><span class="name">${esc(s.name)}</span>${s.pid === V.me.pid ? ' <span class="small muted">(you)</span>' : ''}</div>
-      ${!s.alive ? pill('dead', s.ghostVote ? '👻 vote' : '👻') : ''}
+    <div class="item ${s.alive ? '' : 'dead'}"><span class="seat">${s.alive ? s.seat : '💀'}</span>
+      <div class="main"><span class="name">${esc(s.name)}</span>${s.pid === V.me.pid ? ' <span class="small muted">(you)</span>' : ''}
+        <div class="small ${s.alive ? 'alive-label' : 'muted'}">${s.alive ? 'alive' : 'dead · ' + (s.canVote ? '1 ghost vote left' : 'cannot vote')}</div></div>
+      ${!s.alive ? pill('dead', s.canVote ? '👻' : '✖') : ''}
       ${V.block && V.block.name === s.name ? pill('evil', 'on the block') : ''}</div>`).join('');
   return `${voteCard}
     ${V.phase === 'day' ? `<div class="card small">${esc(V.announce)}<div class="muted">${V.seats.filter(s => s.alive).length} alive · ${V.threshold} votes to execute</div></div>` : ''}
     ${nominate}
     <div class="card list" style="padding:4px">${seats}</div>
-    ${V.nominations.length ? `<div class="card"><h3>Today's nominations</h3>${V.nominations.map(n => `<div class="small">${esc(n.nominator)} → <b>${esc(n.nominee)}</b>: ${n.votes} votes</div>`).join('')}</div>` : ''}`;
+    ${V.nominations.length ? `<div class="card"><h3>Today's nominations</h3>${V.nominations.map(n => `<div class="small" style="margin-bottom:4px">${esc(n.nominator)} → <b>${esc(n.nominee)}</b>: ${n.votes} votes${n.voters && n.voters.length ? `<div class="muted">✋ ${n.voters.map(esc).join(', ')}</div>` : ''}</div>`).join('')}</div>` : ''}`;
 }
 
 function viewInbox() {

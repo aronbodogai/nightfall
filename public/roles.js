@@ -68,7 +68,14 @@ window.ROLES = [
     other: { order: 30, choose: 1, upTo: 2, effect: 'kill' } },
 ];
 
+window.BASE_ROLES = window.ROLES;
 window.ROLE = Object.fromEntries(window.ROLES.map(r => [r.id, r]));
+// Swap the active character list (e.g. after importing a script). Mutates in place so references stay valid.
+window.setRoles = (list) => {
+  window.ROLES = list;
+  window.ROLE = Object.fromEntries(list.map(r => [r.id, r]));
+};
+window.TEAM_ICON = { townsfolk: '🏠', outsider: '🌀', minion: '🗡️', demon: '😈' };
 window.TEAM_LABEL = { townsfolk: 'Townsfolk', outsider: 'Outsider', minion: 'Minion', demon: 'Demon' };
 window.isEvilTeam = (team) => team === 'minion' || team === 'demon';
 

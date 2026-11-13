@@ -55,7 +55,19 @@ label { display: block; font-size: .85rem; color: var(--muted); margin: 8px 0 4p
 .list > .item:last-child { border-bottom: 0; }
 .item .seat { width: 30px; height: 30px; border-radius: 50%; background: var(--panel2); border: 1px solid var(--line); display: grid; place-items: center;
   font-size: .8rem; font-weight: 700; flex: none; }
-.item.dead { opacity: .55; } .item.dead .name { text-decoration: line-through; }
+.item.dead { opacity: .55; filter: grayscale(1); } .item.dead .name { text-decoration: line-through; }
+.item.dead .seat { background: #000; border-color: #555; }
+.alive-label { color: #8fe0ad; }
+.card.novote, .item.novote { filter: grayscale(1); }
+.card.novote button:disabled { opacity: .3; }
+.hands { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.hand { display: flex; justify-content: space-between; gap: 6px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel2); font-size: .85rem; min-width: 0; }
+.hand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hand b { white-space: nowrap; }
+.hand.yes { border-color: var(--ok); background: #1d4430; }
+.hand.no { color: var(--muted); }
+.hand.novote { opacity: .4; filter: grayscale(1); text-decoration: line-through; }
 .item .name { font-weight: 600; } .item .main { flex: 1; min-width: 0; }
 .item.sel { background: #2f2a1d; outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 10px; }
 .tap { cursor: pointer; }
