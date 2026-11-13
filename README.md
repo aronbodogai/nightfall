@@ -66,6 +66,17 @@ The Grimoire tab lets the Storyteller override anything (character, alive, ghost
 protection) and send private messages. Refreshing either page is safe: the host's state is saved on
 its device, and players reconnect automatically.
 
+## Languages
+
+English and Hungarian, picked per device from the top bar (defaults to the browser language).
+System messages and built-in characters are shown in each phone's own language; text the Storyteller
+types and characters from imported scripts appear as written. Translations live in
+`public/i18n-hu.js` (keys are the English strings); add a language by adding a file like it and an
+entry in `LANGS` in `public/i18n.js`.
+
+The lobby shows a QR code of the join link, generated locally
+(`public/vendor/qrcode.js`, MIT, by Kazuhiko Arase), so it also works on a Wi-Fi without internet.
+
 ## Characters
 
 An original set in `public/roles.js` (the official characters and texts are The Pandemonium

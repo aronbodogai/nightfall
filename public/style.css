@@ -84,6 +84,10 @@ label { display: block; font-size: .85rem; color: var(--muted); margin: 8px 0 4p
 .roleline .ri { font-size: 1.4rem; width: 32px; text-align: center; flex: none; }
 .roleline.mine { background: #2b2416; border-radius: 10px; padding: 8px; }
 .tabs button { font-size: .7rem; }
+.qr { width: min(70vw, 240px); margin: 12px auto 4px; padding: 10px; background: #fff; border-radius: 12px; }
+.qr svg { display: block; width: 100%; height: auto; }
+.langpick { width: 64px; min-height: 34px; padding: 4px 6px; font-size: .85rem; font-weight: 700; border-radius: 10px; flex: none; }
+#lang { flex: none; }
 .hand.novote { opacity: .4; filter: grayscale(1); text-decoration: line-through; }
 .item .name { font-weight: 600; } .item .main { flex: 1; min-width: 0; }
 .item.sel { background: #2f2a1d; outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 10px; }

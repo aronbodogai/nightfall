@@ -17,6 +17,7 @@ const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) {
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const UNKNOWN_ROLE = { id: '?', name: 'Unknown', team: 'townsfolk', icon: '❔', ability: '' };
 const role = (id) => ROLE[id] || Object.assign({}, UNKNOWN_ROLE, { id, name: String(id) });
+const roleRef = (id) => R(role(id));
 
 function freshState(room, hostToken) {
   return {
@@ -41,6 +42,8 @@ fetch('/api/info').then(r => r.json()).then(j => { info = j; render(); }).catch(
   const saved = store.get('nf_host');
   if (saved && saved.room) net.connect(saved.room);
 }
+mountLangPicker(document.getElementById('lang'));
+onLangChange(() => render());
 
 async function createRoom() {
   creating = true; render();
@@ -52,7 +55,7 @@ async function createRoom() {
     store.del('nf_host_state');
     net.connect(room);
   } catch (e) {
-    toast('Could not create a room: ' + e.message);
+    toast(t('Could not create a room: {err}', { err: e.message }));
   }
   creating = false; render();
 }
@@ -71,7 +74,7 @@ function onMsg(m) {
     // Room expired or server restarted: start over.
     net.disconnect();
     store.del('nf_host'); store.del('nf_host_state');
-    toast('That room no longer exists on the server. Create a new one; players rejoin with the new code.');
+    toast(t('That room no longer exists on the server. Create a new one; players rejoin with the new code.'));
     S = null; render();
   } else if (m.t === 'presence') {
     presence = m.players; syncPresence(); save();
@@ -126,16 +129,16 @@ function tallyYes(v) {
   for (const [pid, yes] of Object.entries(v.votes)) { const p = S.players[pid]; if (yes && canVote(p)) n += voteWeight(p); }
   return n;
 }
+const roleOut = (r) => (r ? { id: r.id, name: r.name, team: r.team, icon: r.icon, ability: r.ability, imported: !!r.imported } : null);
 
 function buildViews() {
   const views = {};
   const seats = seatList().map((p, i) => ({ pid: p.pid, name: p.name, seat: i + 1, alive: p.alive, ghostVote: p.ghostVote, canVote: canVote(p) }));
   // Roles are only revealed to everyone once the game is over.
-  const reveal = S.winner ? seatList().map(p => ({ name: p.name, role: role(p.role).name, icon: role(p.role).icon, team: role(p.role).team,
-    thought: p.fakeRole ? role(p.fakeRole).name : null })) : null;
+  const reveal = S.winner ? seatList().map(p => ({ name: p.name, role: roleRef(p.role), icon: role(p.role).icon, team: role(p.role).team,
+    thought: p.fakeRole ? roleRef(p.fakeRole) : null })) : null;
   // The script (every character that might be in play) is public information for all players.
-  const scriptView = { name: S.script ? S.script.name : 'Nightfall', author: S.script ? S.script.author : '',
-    roles: ROLES.map(r => ({ id: r.id, name: r.name, team: r.team, icon: r.icon, ability: r.ability })) };
+  const scriptView = { name: S.script ? S.script.name : 'Nightfall', author: S.script ? S.script.author : '', roles: ROLES.map(roleOut) };
   for (const p of seatList()) {
     const r = p.role ? role(shownRole(p)) : null;
     const v = S.vote;
@@ -144,7 +147,7 @@ function buildViews() {
       seats, threshold: threshold(),
       me: {
         pid: p.pid, name: p.name, alive: p.alive, ghostVote: p.ghostVote, canVote: canVote(p),
-        role: r ? { id: r.id, name: r.name, team: r.team, icon: r.icon, ability: r.ability } : null,
+        role: roleOut(r),
         evil: p.role ? isEvil(p) : null,
         evilInfo: p.evilInfo,
         canNominate: S.phase === 'day' && !!S.nomsOpen && p.alive && !p.nominated && !S.vote,
@@ -167,24 +170,25 @@ function buildViews() {
   return views;
 }
 
-function msg(pid, text) {
+// Messages are { k, v } (translated on each phone) or plain strings typed by the Storyteller.
+function msg(pid, m) {
   const p = S.players[pid]; if (!p) return;
-  p.msgs.push({ text, ts: now() });
+  p.msgs.push({ text: m, ts: now() });
 }
-function msgAll(text) { for (const p of seatList()) msg(p.pid, text); }
-function log(text) { S.log.push({ text, ts: now(), phase: S.phase === 'night' ? `N${S.night}` : `D${S.day}` }); }
+function msgAll(m) { for (const p of seatList()) msg(p.pid, m); }
+function log(text) { S.log.push({ text: tx(text), ts: now(), phase: S.phase === 'night' ? `N${S.night}` : `D${S.day}` }); }
 
 // ---------- setup ----------
 function recommended() { return setupFor(S.seats.length); }
 function countSel(team) { return S.selection.filter(id => role(id).team === team).length; }
 function randomSelection() {
-  const [t, o, m, d] = recommended();
+  const [nt, no, nm, nd] = recommended();
   const byTeam = (team) => shuffle(ROLES.filter(r => r.team === team).map(r => r.id));
-  S.selection = [...byTeam('townsfolk').slice(0, t), ...byTeam('outsider').slice(0, o), ...byTeam('minion').slice(0, m), ...byTeam('demon').slice(0, d)];
+  S.selection = [...byTeam('townsfolk').slice(0, nt), ...byTeam('outsider').slice(0, no), ...byTeam('minion').slice(0, nm), ...byTeam('demon').slice(0, nd)];
 }
 function deal() {
   const ps = seatList();
-  if (S.selection.length !== ps.length) return toast(`Select exactly ${ps.length} characters (now ${S.selection.length}).`);
+  if (S.selection.length !== ps.length) return toast(t('Select exactly {n} characters (now {m}).', { n: ps.length, m: S.selection.length }));
   const roles = shuffle(S.selection);
   ps.forEach((p, i) => { Object.assign(p, newPlayer(p.pid, p.name), { connected: p.connected, role: roles[i] }); });
   const notInPlay = ROLES.filter(r => r.team === 'townsfolk' && !S.selection.includes(r.id)).map(r => r.id);
@@ -197,13 +201,13 @@ function deal() {
   save();
 }
 function startGame() {
-  if (!S.dealt) return toast('Deal characters first.');
+  if (!S.dealt) return toast(t('Deal characters first.'));
   S.locked = true;
   for (const p of seatList()) {
     const r = role(shownRole(p));
-    msg(p.pid, `You are the ${r.name}. ${r.ability}`);
+    msg(p.pid, L('You are the {role}. {ability}', { role: R(r), ability: RA(r) }));
   }
-  log('Game started with ' + seatList().length + ' players.');
+  log(L('Game started with {n} players.', { n: seatList().length }));
   startNight();
 }
 
@@ -228,8 +232,8 @@ function startNight() {
   steps.sort((a, b) => a.order - b.order);
   steps.push({ key: 'dawn', kind: 'dawn', order: 999 });
   S.steps = steps; S.stepIdx = 0; S.dawn = null;
-  S.announce = `Night ${S.night}. Close your eyes.`;
-  log(`Night ${S.night} begins.`);
+  S.announce = L('Night {n}. Close your eyes.', { n: S.night });
+  log(L('Night {n} begins.', { n: S.night }));
   tab = 'night'; save();
 }
 function stepDef(st) {
@@ -244,15 +248,12 @@ function stepDef(st) {
 function promptPlayer(st) {
   const { p, r, choose, upTo, n } = stepDef(st);
   const max = upTo || choose;
-  p.prompt = { id: S.promptSeq++, step: st.key, role: r.name,
-    text: max > choose ? `Choose ${choose}–${max} players.` : `Choose ${choose} player${choose > 1 ? 's' : ''}.`,
-    min: choose, max, notSelf: !!n.notSelf, ability: r.ability };
+  p.prompt = { id: S.promptSeq++, step: st.key, role: R(r), ability: RA(r), min: choose, max, notSelf: !!n.notSelf };
   st.status = 'prompted';
-  vibrateNotice();
   save();
 }
-function vibrateNotice() { /* host-side no-op; players vibrate on prompt */ }
 
+// Suggested true answers are written in the Storyteller's language; they edit and send them as text.
 function suggestion(st) {
   const { p, n } = stepDef(st);
   const ch = st.choice.map(id => S.players[id]).filter(Boolean);
@@ -262,36 +263,36 @@ function suggestion(st) {
     case 'archivist': {
       const inPlay = ps.filter(x => x.pid !== p.pid).map(x => role(x.role).name);
       const out = ROLES.filter(r => !ps.some(x => x.role === r.id)).map(r => r.name);
-      s = `${pick(inPlay)} is in play. ${pick(out)} is not in play.`; break;
+      s = t('{a} is in play. {b} is not in play.', { a: pick(inPlay), b: pick(out) }); break;
     }
-    case 'twin': { const g = ps.filter(x => x.pid !== p.pid && !isEvil(x)); s = g.length ? `${pick(g).name} is good.` : 'No other good player.'; break; }
+    case 'twin': { const g = ps.filter(x => x.pid !== p.pid && !isEvil(x)); s = g.length ? t('{name} is good.', { name: pick(g).name }) : t('No other good player.'); break; }
     case 'census': {
       const i = S.seats.indexOf(p.pid); let c = 0;
       for (let k = 1; k <= 3 && k < ps.length; k++) if (isEvil(ps[(i + k) % ps.length])) c++;
-      s = `${c} evil among the 3 players to your left.`; break;
+      s = t('{n} evil among the 3 players to your left.', { n: c }); break;
     }
     case 'cartographer': {
       if (!ch[0]) break;
       const alive = ps.filter(x => x.alive || x.pid === ch[0].pid);
       const i = alive.findIndex(x => x.pid === ch[0].pid);
       const nb = alive.length > 2 ? [alive[(i - 1 + alive.length) % alive.length], alive[(i + 1) % alive.length]] : alive.filter(x => x.pid !== ch[0].pid);
-      s = `${nb.filter(isEvil).length} of ${ch[0].name}'s living neighbours ${nb.filter(isEvil).length === 1 ? 'is' : 'are'} evil.`; break;
+      s = t("{n} of {name}'s living neighbours evil.", { n: nb.filter(isEvil).length, name: ch[0].name }); break;
     }
     case 'oracle': {
       if (ch.length < 2) break;
-      s = ch.some(x => role(x.role).team === 'minion') ? `YES — ${ch[0].name} or ${ch[1].name} is a Minion.` : `NO — neither ${ch[0].name} nor ${ch[1].name} is a Minion.`;
+      s = ch.some(x => role(x.role).team === 'minion') ? t('YES — {a} or {b} is a Minion.', { a: ch[0].name, b: ch[1].name }) : t('NO — neither {a} nor {b} is a Minion.', { a: ch[0].name, b: ch[1].name });
       break;
     }
     case 'tracker': {
       if (!ch[0]) break;
       const other = S.steps.find(x => x.kind === 'role' && x.pid === ch[0].pid && x.choice && x.choice.length);
-      s = other ? `${ch[0].name} chose ${other.choice.map(pname).join(' and ')}.` : `${ch[0].name} chose nobody (so far tonight).`; break;
+      s = other ? t('{name} chose {targets}.', { name: ch[0].name, targets: other.choice.map(pname) }) : t('{name} chose nobody (so far tonight).', { name: ch[0].name }); break;
     }
     case 'gravedigger': {
       const e = S.lastExecuted && S.players[S.lastExecuted];
-      s = e ? `${e.name} (executed) was ${isEvil(e) ? 'EVIL' : 'GOOD'}.` : 'Nobody was executed today.'; break;
+      s = e ? t(isEvil(e) ? '{name} (executed) was EVIL.' : '{name} (executed) was GOOD.', { name: e.name }) : t('Nobody was executed today.'); break;
     }
-    case 'whisperer': { if (ch[0]) s = `${ch[0].name} is the ${role(ch[0].role).name}.`; break; }
+    case 'whisperer': { if (ch[0]) s = t('{name} is the {role}.', { name: ch[0].name, role: role(ch[0].role).name }); break; }
   }
   return s;
 }
@@ -299,8 +300,8 @@ function suggestion(st) {
 function suggestionNote(st) {
   const { p } = stepDef(st);
   const notes = [];
-  if (malfunctioning(p)) notes.push('⚠ Malfunctioning (' + (p.role === 'sleepwalker' ? 'Sleepwalker' : 'cursed') + ') — you may give false info.');
-  if (seatList().some(x => x.role === 'mimic' && x.alive) && ['census', 'cartographer', 'oracle', 'gravedigger'].includes(stepDef(st).n.info)) notes.push('Mimic in play: may register as good/Townsfolk.');
+  if (malfunctioning(p)) notes.push(t(p.role === 'sleepwalker' ? '⚠ Malfunctioning (Sleepwalker): you may give false info.' : '⚠ Malfunctioning (cursed): you may give false info.'));
+  if (seatList().some(x => x.role === 'mimic' && x.alive) && ['census', 'cartographer', 'oracle', 'gravedigger'].includes(stepDef(st).n.info)) notes.push(t('Mimic in play: may register as good/Townsfolk.'));
   return notes.join(' ');
 }
 
@@ -313,15 +314,19 @@ function minionInfoText() {
 function sendMinionInfo() {
   const { demon, minions } = minionInfoText();
   for (const m of minions) {
-    m.evilInfo = Object.assign(m.evilInfo || {}, { demon: demon.map(d => d.name), minions: minions.filter(x => x !== m).map(x => x.name) });
-    msg(m.pid, `Evil team: the Demon is ${demon.map(d => d.name).join(', ')}.` + (minions.length > 1 ? ` Fellow Minions: ${minions.filter(x => x !== m).map(x => x.name).join(', ')}.` : ''));
+    const others = minions.filter(x => x !== m).map(x => x.name);
+    m.evilInfo = Object.assign(m.evilInfo || {}, { demon: demon.map(d => d.name), minions: others });
+    msg(m.pid, others.length
+      ? L('Evil team: the Demon is {demon}. Fellow Minions: {minions}.', { demon: demon.map(d => d.name), minions: others })
+      : L('Evil team: the Demon is {demon}.', { demon: demon.map(d => d.name) }));
   }
 }
 function sendDemonInfo() {
   const { demon, minions } = minionInfoText();
+  const bluffs = S.bluffs.map(roleRef);
   for (const d of demon) {
-    d.evilInfo = { minions: minions.map(x => x.name), bluffs: S.bluffs.map(id => role(id).name) };
-    msg(d.pid, `Your Minions: ${minions.map(x => x.name).join(', ') || 'none'}. Not in play (safe bluffs): ${S.bluffs.map(id => role(id).name).join(', ')}.`);
+    d.evilInfo = { minions: minions.map(x => x.name), bluffs };
+    msg(d.pid, L('Your Minions: {minions}. Not in play (safe bluffs): {bluffs}.', { minions: minions.length ? minions.map(x => x.name) : L('none'), bluffs }));
   }
 }
 
@@ -339,13 +344,13 @@ function computeDawn() {
     if (st.kind !== 'role' || !st.choice.length) continue;
     const { p, n } = stepDef(st);
     if (n.effect !== 'kill') continue;
-    if (malfunctioning(p)) { notes.push(`${p.name} (Demon) is cursed — kill fails.`); continue; }
+    if (malfunctioning(p)) { notes.push(t('{name} (Demon) is cursed: the kill fails.', { name: p.name })); continue; }
     for (const id of st.choice) {
-      const t = S.players[id];
-      if (!t.alive) { notes.push(`${t.name} already dead.`); continue; }
-      if (t.protected) { notes.push(`${t.name} protected by Herbalist.`); continue; }
-      if (t.role === 'sentinel' && !t.sentinelUsed && !t.cursed) { t.sentinelUsed = true; sentinelHit.v = true; notes.push(`${t.name} is the Sentinel — nobody dies tonight.`); continue; }
-      if (t.role === 'lucky' && !t.luckyUsed && !t.cursed) { t.luckyUsed = true; notes.push(`${t.name} is the Lucky One — survives (first time).`); continue; }
+      const tg = S.players[id];
+      if (!tg.alive) { notes.push(t('{name} already dead.', { name: tg.name })); continue; }
+      if (tg.protected) { notes.push(t('{name} protected by Herbalist.', { name: tg.name })); continue; }
+      if (tg.role === 'sentinel' && !tg.sentinelUsed && !tg.cursed) { tg.sentinelUsed = true; sentinelHit.v = true; notes.push(t('{name} is the Sentinel: nobody dies tonight.', { name: tg.name })); continue; }
+      if (tg.role === 'lucky' && !tg.luckyUsed && !tg.cursed) { tg.luckyUsed = true; notes.push(t('{name} is the Lucky One: survives (first time).', { name: tg.name })); continue; }
       kills.push(id);
     }
   }
@@ -356,19 +361,19 @@ function killPlayer(pid, cause) {
   const p = S.players[pid]; if (!p || !p.alive) return;
   const aliveBefore = alivePlayers().length;
   p.alive = false;
-  log(`${p.name} died (${cause}).`);
+  log(L('{name} died ({cause}).', { name: p.name, cause: L(cause) }));
   if (p.role === 'witness') {
     const evil = seatList().filter(x => isEvil(x) && x.role !== 'mimic');
-    const t = p.cursed ? pick(seatList().filter(x => x.pid !== pid)) : pick(evil);
-    if (t) { msg(pid, `Witness: ${t.name} is evil.`); log(`Witness ${p.name} told: ${t.name}` + (p.cursed ? ' (cursed: random)' : '')); }
+    const tg = p.cursed ? pick(seatList().filter(x => x.pid !== pid)) : pick(evil);
+    if (tg) { msg(pid, L('Witness: {name} is evil.', { name: tg.name })); log(L('Witness {a} told: {b}', { a: p.name, b: tg.name })); }
   }
   if (role(p.role).team === 'demon') {
     const heir = seatList().find(x => x.role === 'heir' && x.alive && !x.cursed);
     if (heir && aliveBefore >= 5) {
       heir.role = p.role;
-      msg(heir.pid, `The Demon has fallen. You are now the ${role(p.role).name}: ${role(p.role).ability}`);
-      log(`${heir.name} (Heir) becomes the ${role(p.role).name}.`);
-      toast(`Heir ${heir.name} becomes the Demon.`);
+      msg(heir.pid, L('The Demon has fallen. You are now the {role}: {ability}', { role: roleRef(p.role), ability: RA(role(p.role)) }));
+      log(L('{name} (Heir) becomes the {role}.', { name: heir.name, role: roleRef(p.role) }));
+      toast(t('Heir {name} becomes the Demon.', { name: heir.name }));
     }
   }
   checkWin();
@@ -376,16 +381,18 @@ function killPlayer(pid, cause) {
 function checkWin() {
   if (S.winner) return;
   const demonAlive = seatList().some(p => p.alive && role(p.role).team === 'demon');
-  if (!demonAlive) return endGame('good', 'The Demon is dead.');
-  if (alivePlayers().length <= 2) return endGame('evil', 'Only two players remain.');
+  if (!demonAlive) return endGame('good', L('The Demon is dead.'));
+  if (alivePlayers().length <= 2) return endGame('evil', L('Only two players remain.'));
 }
 function endGame(side, why) {
   S.winner = side; S.phase = 'over';
-  S.announce = `${side === 'good' ? 'GOOD' : 'EVIL'} WINS — ${why}`;
+  S.announce = L(side === 'good' ? 'GOOD WINS: {why}' : 'EVIL WINS: {why}', { why });
   for (const p of seatList()) p.prompt = null;
   S.vote = null;
   log(S.announce);
-  msgAll(S.announce + '\n' + seatList().map(p => `${p.name}: ${role(p.role).name}${p.fakeRole ? ' (thought ' + role(p.fakeRole).name + ')' : ''}`).join('\n'));
+  msgAll([S.announce, '\n', ...seatList().map(p => p.fakeRole
+    ? L('{name}: {role} (thought {fake})\n', { name: p.name, role: roleRef(p.role), fake: roleRef(p.fakeRole) })
+    : L('{name}: {role}\n', { name: p.name, role: roleRef(p.role) }))]);
   tab = 'grim';
 }
 
@@ -396,7 +403,7 @@ function startDay() {
   for (const p of seatList()) { p.prompt = null; p.nominated = false; p.wasNominated = false; p.protected = false; }
   S.nominations = []; S.vote = null; S.block = null; S.executedToday = null; S.debtorNight = false; S.nomsOpen = false; S.highest = 0;
   S.requests = [];
-  S.announce = died.length ? `Day ${S.day}. Died in the night: ${died.map(pname).join(', ')}.` : `Day ${S.day}. Nobody died in the night.`;
+  S.announce = died.length ? L('Day {n}. Died in the night: {names}.', { n: S.day, names: died.map(pname) }) : L('Day {n}. Nobody died in the night.', { n: S.day });
   msgAll(S.announce);
   log(S.announce);
   for (const id of died) killPlayer(id, 'night');
@@ -407,27 +414,27 @@ function startDay() {
 // ---------- day ----------
 function nominationProblem(nominator, nominee) {
   const a = S.players[nominator], b = S.players[nominee];
-  if (!a || !b) return 'Unknown player.';
-  if (!a.alive) return `${a.name} is dead and cannot nominate.`;
-  if (a.nominated) return `${a.name} already nominated today.`;
-  if (b.wasNominated) return `${b.name} was already nominated today.`;
-  if (S.vote) return 'A vote is already in progress.';
+  if (!a || !b) return L('Unknown player.');
+  if (!a.alive) return L('{name} is dead and cannot nominate.', { name: a.name });
+  if (a.nominated) return L('{name} already nominated today.', { name: a.name });
+  if (b.wasNominated) return L('{name} was already nominated today.', { name: b.name });
+  if (S.vote) return L('A vote is already in progress.');
   return '';
 }
 function openVote(nominator, nominee) {
   const prob = nominationProblem(nominator, nominee);
-  if (prob) return toast(prob);
+  if (prob) return toast(tx(prob));
   const a = S.players[nominator], b = S.players[nominee];
   a.nominated = true; b.wasNominated = true;
   S.requests = S.requests.filter(r => !(r.kind === 'nominate' && r.pid === nominator));
-  log(`${a.name} nominates ${b.name}.`);
+  log(L('{a} nominates {b}.', { a: a.name, b: b.name }));
   if (a.role === 'hothead' && !a.cursed && !isEvil(b)) {
-    toast(`${a.name} is the Hothead and nominated a good player — they die.`);
+    toast(t('{name} is the Hothead and nominated a good player: they die.', { name: a.name }));
     killPlayer(a.pid, 'Hothead');
   }
   if (S.winner) return save();
   S.vote = { nominator, nominee, votes: {}, open: true };
-  S.announce = `${a.name} nominated ${b.name}. Vote now! (${threshold()} needed)`;
+  S.announce = L('{a} nominated {b}. Vote now! ({n} needed)', { a: a.name, b: b.name, n: threshold() });
   save();
 }
 function voteWeight(p) { return p.role === 'magistrate' && !p.cursed && p.alive ? 2 : 1; }
@@ -443,34 +450,34 @@ function closeVote() {
   S.nominations.push({ nominator: v.nominator, nominee: v.nominee, votes: count, voters });
   let result;
   const best = S.highest || 0;
-  if (count >= need && count > best) { S.block = { pid: v.nominee, votes: count }; S.highest = count; result = `${pname(v.nominee)} is on the block with ${count}.`; }
-  else if (count >= need && count === best) { S.block = null; result = `Tie at ${count} — nobody is on the block.`; }
-  else result = `${count} vote${count === 1 ? '' : 's'} — not enough (${count < need ? need + ' needed' : 'needs more than ' + best}).`;
-  log(`Vote on ${pname(v.nominee)}: ${count} (${voters.join(', ') || 'none'}). ${result}`);
+  if (count >= need && count > best) { S.block = { pid: v.nominee, votes: count }; S.highest = count; result = L('{name} is on the block with {n}.', { name: pname(v.nominee), n: count }); }
+  else if (count >= need && count === best) { S.block = null; result = L('Tie at {n}: nobody is on the block.', { n: count }); }
+  else result = count < need ? L('{n} votes: not enough ({need} needed).', { n: count, need }) : L('{n} votes: not enough (needs more than {best}).', { n: count, best });
+  log([L('Vote on {name}: {n} ({voters}). ', { name: pname(v.nominee), n: count, voters: voters.length ? voters : L('none') }), result]);
   S.announce = result;
-  msgAll(`Vote on ${pname(v.nominee)}: ${count}. ${result}`);
+  msgAll([L('Vote on {name}: {n}. ', { name: pname(v.nominee), n: count }), result]);
   S.vote = null;
   save();
 }
 // mode: 'kill' = execute and they die; 'survive' = executed but an ability keeps them alive; 'none' = no execution.
 function endDay(mode) {
-  if (S.vote) return toast('Close the open vote first.');
+  if (S.vote) return toast(t('Close the open vote first.'));
   S.nomsOpen = false;
   if (S.block && mode !== 'none') {
     const p = S.players[S.block.pid];
     S.executedToday = p.pid; S.lastExecuted = p.pid;
     if (mode === 'survive') {
-      msgAll(`${p.name} is executed… but does not die.`);
-      log(`${p.name} executed but survived (Storyteller ruling).`);
+      msgAll(L('{name} is executed… but does not die.', { name: p.name }));
+      log(L('{name} executed but survived (Storyteller ruling).', { name: p.name }));
     } else {
-      msgAll(`${p.name} is executed.`);
-      if (p.role === 'debtor' && !p.cursed) { S.debtorNight = true; log('Debtor executed: the Demon may kill twice tonight.'); }
+      msgAll(L('{name} is executed.', { name: p.name }));
+      if (p.role === 'debtor' && !p.cursed) { S.debtorNight = true; log(L('Debtor executed: the Demon may kill twice tonight.')); }
       killPlayer(p.pid, 'executed');
     }
   } else {
     S.lastExecuted = null;
-    msgAll('Nobody is executed today.');
-    log('No execution today.');
+    msgAll(L('Nobody is executed today.'));
+    log(L('No execution today.'));
   }
   S.highest = 0; S.block = null;
   if (S.winner) return save();
@@ -488,16 +495,16 @@ function handleAct(pid, a) {
     if (targets.length < p.prompt.min) return;
     if (st) { st.choice = targets; st.status = 'answered'; applyImmediateEffects(st); }
     p.prompt = null;
-    toast(`${p.name} chose ${targets.map(pname).join(', ')}`);
+    toast(t('{name} chose {targets}', { name: p.name, targets: targets.map(pname) }));
     save();
   } else if (a.kind === 'nominate') {
     if (S.phase !== 'day') return;
-    if (!S.nomsOpen) { msg(pid, 'Nominations are not open yet.'); return save(); }
+    if (!S.nomsOpen) { msg(pid, L('Nominations are not open yet.')); return save(); }
     const prob = nominationProblem(pid, a.target);
-    if (prob) { msg(pid, 'Nomination refused: ' + prob); return save(); }
+    if (prob) { msg(pid, [L('Nomination refused: '), prob]); return save(); }
     S.requests = S.requests.filter(r => r.pid !== pid || r.kind !== 'nominate');
     S.requests.push({ kind: 'nominate', pid, target: a.target, ts: now() });
-    toast(`${p.name} wants to nominate ${pname(a.target)}`);
+    toast(t('{a} wants to nominate {b}', { a: p.name, b: pname(a.target) }));
     save();
   } else if (a.kind === 'vote') {
     if (!S.vote || !S.vote.open) return;
@@ -507,7 +514,7 @@ function handleAct(pid, a) {
   } else if (a.kind === 'duel') {
     if (S.phase !== 'day' || p.duelUsed) return;
     S.requests.push({ kind: 'duel', pid, target: a.target, ts: now() });
-    toast(`${p.name} (Duelist?) challenges ${pname(a.target)}`);
+    toast(t('{a} (Duelist?) challenges {b}', { a: p.name, b: pname(a.target) }));
     save();
   } else if (a.kind === 'cancel_request') {
     S.requests = S.requests.filter(r => r.pid !== pid); save();
@@ -518,10 +525,10 @@ function resolveDuel(i, kill) {
   const r = S.requests[i]; if (!r) return;
   const p = S.players[r.pid]; p.duelUsed = true;
   S.requests.splice(i, 1);
-  const t = S.players[r.target];
-  msgAll(`${p.name} challenges ${t.name}... ${kill ? t.name + ' dies!' : 'nothing happens.'}`);
-  log(`Duel: ${p.name} → ${t.name}: ${kill ? 'dies' : 'nothing'}.`);
-  if (kill) killPlayer(t.pid, 'duel');
+  const tg = S.players[r.target];
+  msgAll(L(kill ? '{a} challenges {b}… {b} dies!' : '{a} challenges {b}… nothing happens.', { a: p.name, b: tg.name }));
+  log(L(kill ? 'Duel: {a} → {b}: dies.' : 'Duel: {a} → {b}: nothing.', { a: p.name, b: tg.name }));
+  if (kill) killPlayer(tg.pid, 'duel');
   save();
 }
 
@@ -536,31 +543,32 @@ function rolePill(id) { if (!id) return ''; const r = role(id); return pill(r.te
 function render() {
   const title = document.getElementById('toptitle');
   if (!S) {
-    title.textContent = 'Nightfall — Storyteller';
+    title.textContent = t('Nightfall Storyteller');
     const resuming = !!store.get('nf_host');
     $tabs.innerHTML = '';
     $app.innerHTML = `
       <div class="card stack">
-        <h1>Host a game</h1>
-        <p class="muted">You are the Storyteller. Your device holds the full game state. Keep this page open.</p>
-        ${resuming ? '<p class="small muted">Reconnecting to your room…</p>'
-          : `<button class="primary block" data-a="create" ${creating ? 'disabled' : ''}>${creating ? 'Creating…' : 'Create room'}</button>`}
+        <h1>${t('Host a game')}</h1>
+        <p class="muted">${t('You are the Storyteller. Your device holds the full game state. Keep this page open.')}</p>
+        ${resuming ? `<p class="small muted">${t('Reconnecting to your room…')}</p>`
+          : `<button class="primary block" data-a="create" ${creating ? 'disabled' : ''}>${creating ? t('Creating…') : t('Create room')}</button>`}
       </div>
-      <div class="card small muted">Players open <b>${esc(joinBase())}</b>${info.cloud ? '' : ' on the same Wi-Fi'}.</div>`;
+      <div class="card small muted">${t(info.cloud ? 'Players open {url}.' : 'Players open {url} on the same Wi-Fi.', { url: joinBase() })}</div>`;
     return;
   }
-  title.textContent = `Room ${S.room} · ` + (S.phase === 'night' ? `Night ${S.night}` : S.phase === 'day' ? `Day ${S.day}` : S.phase === 'over' ? 'Game over' : 'Setup');
+  const phaseName = S.phase === 'night' ? t('Night {n}', { n: S.night }) : S.phase === 'day' ? t('Day {n}', { n: S.day }) : S.phase === 'over' ? t('Game over') : t('Setup');
+  title.textContent = t('Room {code}', { code: S.room }) + ' · ' + phaseName;
   document.getElementById('topright').innerHTML = `<span class="pill">${seatList().length} 👤</span>`;
 
   const tabsDef = S.locked
-    ? [['grim', '📖', 'Grimoire'], [S.phase === 'day' ? 'day' : 'night', S.phase === 'day' ? '☀️' : '🌙', S.phase === 'day' ? 'Day' : 'Night'], ['log', '🧾', 'Log'], ['more', '⚙️', 'More']]
-    : [['lobby', '👥', 'Lobby'], ['setup', '🎭', 'Characters'], ['more', '⚙️', 'More']];
-  if (!tabsDef.some(t => t[0] === tab)) tab = tabsDef[0][0];
+    ? [['grim', '📖', t('Grimoire')], [S.phase === 'day' ? 'day' : 'night', S.phase === 'day' ? '☀️' : '🌙', S.phase === 'day' ? t('Day') : t('Night')], ['log', '🧾', t('Log')], ['more', '⚙️', t('More')]]
+    : [['lobby', '👥', t('Lobby')], ['setup', '🎭', t('Characters')], ['more', '⚙️', t('More')]];
+  if (!tabsDef.some(x => x[0] === tab)) tab = tabsDef[0][0];
   if (S.locked && S.phase !== 'over' && (tab === 'night' || tab === 'day')) tab = S.phase;
   const reqCount = S.requests.length;
   $tabs.innerHTML = tabsDef.map(([k, ic, l]) => `<button class="${tab === k ? 'active' : ''}" data-a="tab" data-k="${k}"><span class="ic">${ic}</span>${l}${k === 'day' && reqCount ? `<span class="badge">${reqCount}</span>` : ''}</button>`).join('');
 
-  const banner = S.winner ? `<div class="banner ${S.winner}"><h2>${esc(S.announce)}</h2></div>` : '';
+  const banner = S.winner ? `<div class="banner ${S.winner}"><h2>${esc(tx(S.announce))}</h2></div>` : '';
   $app.innerHTML = banner + ({ lobby: viewLobby, setup: viewSetup, grim: viewGrim, night: viewNight, day: viewDay, log: viewLog, more: viewMore }[tab] || viewGrim)();
   renderSheet();
 }
@@ -569,66 +577,78 @@ function joinBase() {
   if (!info.addresses || !info.addresses.length) return location.origin + '/';
   return `http://${info.addresses[0]}:${info.port || location.port}/`;
 }
+// QR code for the join link (generated locally, so it also works on a Wi-Fi without internet).
+const qrCache = {};
+function qrSvg(url) {
+  if (!url || typeof qrcode !== 'function') return '';
+  if (!qrCache[url]) {
+    const qr = qrcode(0, 'M');
+    qr.addData(url); qr.make();
+    qrCache[url] = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }
+  return qrCache[url];
+}
 function viewLobby() {
   const ps = seatList();
   const urls = (info.addresses || []).length
     ? info.addresses.map(a => `http://${a}:${info.port}/?room=${S.room}`)
     : [`${location.origin}/?room=${S.room}`];
-  const [t, o, m, d] = recommended();
+  const [nt, no, nm, nd] = recommended();
   return `
     <div class="card center">
-      <h3>Room code</h3><div class="code">${S.room}</div>
-      <p class="small muted">Players open${info.cloud ? '' : ' (same Wi-Fi)'}:</p>
+      <h3>${t('Room code')}</h3><div class="code">${S.room}</div>
+      ${qrSvg(urls[0]) ? `<div class="qr" aria-label="${esc(t('Scan to join'))}">${qrSvg(urls[0])}</div><p class="small muted">${t('Scan to join')}</p>` : ''}
+      <p class="small muted">${t(info.cloud ? 'Players open:' : 'Players open (same Wi-Fi):')}</p>
       ${urls.map(u => `<div><b>${esc(u)}</b></div>`).join('')}
     </div>
     <div class="card">
-      <div class="row"><h2 class="grow">Players (${ps.length})</h2></div>
-      <p class="small muted">Order = seating order clockwise around the circle. ${ps.length < 5 ? '5–15 players recommended.' : `Setup: ${t} Townsfolk, ${o} Outsider, ${m} Minion, ${d} Demon.`}</p>
+      <div class="row"><h2 class="grow">${t('Players ({n})', { n: ps.length })}</h2></div>
+      <p class="small muted">${t('Order = seating order clockwise around the circle.')} ${ps.length < 5 ? t('5–15 players recommended.') : t('Setup: {t} Townsfolk, {o} Outsider, {m} Minion, {d} Demon.', { t: nt, o: no, m: nm, d: nd })}</p>
       <div class="list">${ps.map((p, i) => `
         <div class="item"><span class="seat">${i + 1}</span>
-          <div class="main"><div class="name">${esc(p.name)}</div><div class="small ${p.connected ? 'muted' : ''}">${p.connected ? 'connected' : '⚠ offline'}</div></div>
+          <div class="main"><div class="name">${esc(p.name)}</div><div class="small ${p.connected ? 'muted' : ''}">${p.connected ? t('connected') : t('⚠ offline')}</div></div>
           <button class="sm" data-a="seatUp" data-pid="${p.pid}" ${i === 0 ? 'disabled' : ''}>▲</button>
           <button class="sm" data-a="seatDown" data-pid="${p.pid}" ${i === ps.length - 1 ? 'disabled' : ''}>▼</button>
           <button class="sm danger" data-a="kick" data-pid="${p.pid}">✕</button>
-        </div>`).join('') || '<p class="muted">Waiting for players to join…</p>'}</div>
+        </div>`).join('') || `<p class="muted">${t('Waiting for players to join…')}</p>`}</div>
     </div>
-    <button class="primary block" data-a="tab" data-k="setup" ${ps.length < 2 ? 'disabled' : ''}>Choose characters →</button>`;
+    <button class="primary block" data-a="tab" data-k="setup" ${ps.length < 2 ? 'disabled' : ''}>${t('Choose characters →')}</button>`;
 }
 
 function viewSetup() {
   const ps = seatList();
-  const [t, o, m, d] = recommended();
-  const target = { townsfolk: t, outsider: o, minion: m, demon: d };
+  const [nt, no, nm, nd] = recommended();
+  const target = { townsfolk: nt, outsider: no, minion: nm, demon: nd };
   const groups = ['townsfolk', 'outsider', 'minion', 'demon'].map(team => {
     const c = countSel(team);
-    return `<div class="card"><div class="row"><h3 class="grow">${TEAM_LABEL[team]}s</h3>${pill(c === target[team] ? 'ok' : 'warn', `${c} / ${target[team]}`)}</div>
+    return `<div class="card"><div class="row"><h3 class="grow">${teamLabel(team, true)}</h3>${pill(c === target[team] ? 'ok' : 'warn', `${c} / ${target[team]}`)}</div>
       <div class="grid2">${ROLES.filter(r => r.team === team).map(r => {
         const on = S.selection.includes(r.id);
-        return `<button class="${on ? (isEvilTeam(team) ? 'danger' : 'good') : ''}" data-a="toggleRole" data-id="${r.id}" style="text-align:left;min-height:56px" title="${esc(r.ability)}">${r.icon} ${esc(r.name)}${r.setup ? ' <span class="pill warn">setup</span>' : ''}</button>`;
+        return `<button class="${on ? (isEvilTeam(team) ? 'danger' : 'good') : ''}" data-a="toggleRole" data-id="${r.id}" style="text-align:left;min-height:56px" title="${esc(r.ability)}">${r.icon} ${esc(r.name)}${r.setup ? ` <span class="pill warn">${t('setup')}</span>` : ''}</button>`;
       }).join('')}</div></div>`;
   }).join('');
   const sc = S.script;
-  const scriptCard = `<div class="card"><div class="row"><div class="grow"><h3 style="margin:0">Script</h3>
-      <b>${esc(sc ? sc.name : 'Nightfall (built-in)')}</b>${sc && sc.author ? ` <span class="small muted">by ${esc(sc.author)}</span>` : ''}
-      <div class="small muted">${ROLES.length} characters${sc && sc.missing.length ? ` · ⚠ ${sc.missing.length} unknown` : ''}${sc && sc.skipped.length ? ` · ${sc.skipped.length} travellers/fabled skipped` : ''}</div></div>
-      <button class="sm" data-a="openImport" ${S.locked ? 'disabled' : ''}>Import…</button></div>
-      ${sc && sc.missing.length ? `<p class="small" style="color:var(--warn);margin:6px 0 0">Unknown: ${esc(sc.missing.join(', '))}. Import a character library that defines them, then import the script again.</p>` : ''}
-      ${ROLES.some(r => r.setup) ? '<p class="small muted" style="margin:6px 0 0"><span class="pill warn">setup</span> characters change the Townsfolk/Outsider counts: adjust your selection by hand.</p>' : ''}
+  const scriptCard = `<div class="card"><div class="row"><div class="grow"><h3 style="margin:0">${t('Script')}</h3>
+      <b>${esc(sc ? sc.name : t('Nightfall (built-in)'))}</b>${sc && sc.author ? ` <span class="small muted">${t('by {author}', { author: esc(sc.author) })}</span>` : ''}
+      <div class="small muted">${t('{n} characters', { n: ROLES.length })}${sc && sc.missing.length ? ' · ' + t('⚠ {n} unknown', { n: sc.missing.length }) : ''}${sc && sc.skipped.length ? ' · ' + t('{n} travellers/fabled skipped', { n: sc.skipped.length }) : ''}</div></div>
+      <button class="sm" data-a="openImport" ${S.locked ? 'disabled' : ''}>${t('Import…')}</button></div>
+      ${sc && sc.missing.length ? `<p class="small" style="color:var(--warn);margin:6px 0 0">${t('Unknown: {ids}. Import a character library that defines them, then import the script again.', { ids: esc(sc.missing.join(', ')) })}</p>` : ''}
+      ${ROLES.some(r => r.setup) ? `<p class="small muted" style="margin:6px 0 0"><span class="pill warn">${t('setup')}</span> ${t('characters change the Townsfolk/Outsider counts: adjust your selection by hand.')}</p>` : ''}
     </div>`;
   const dealt = S.dealt ? `
-    <div class="card"><h2>Dealt characters</h2>
-      <p class="small muted">Players can already see their character. Swap here if needed, then start.</p>
+    <div class="card"><h2>${t('Dealt characters')}</h2>
+      <p class="small muted">${t('Players can already see their character. Swap here if needed, then start.')}</p>
       <div class="list">${ps.map((p, i) => `
         <div class="item"><span class="seat">${i + 1}</span><div class="main"><div class="name">${esc(p.name)}</div>
-          <div>${rolePill(p.role)} ${p.fakeRole ? '<span class="small muted">thinks</span> ' + rolePill(p.fakeRole) : ''}</div></div>
-          <button class="sm" data-a="sheetPlayer" data-pid="${p.pid}">Edit</button></div>`).join('')}</div>
-      <p class="small">Demon bluffs: ${S.bluffs.map(rolePill).join(' ')}</p>
+          <div>${rolePill(p.role)} ${p.fakeRole ? `<span class="small muted">${t('thinks')}</span> ` + rolePill(p.fakeRole) : ''}</div></div>
+          <button class="sm" data-a="sheetPlayer" data-pid="${p.pid}">${t('Edit')}</button></div>`).join('')}</div>
+      <p class="small">${t('Demon bluffs:')} ${S.bluffs.map(rolePill).join(' ')}</p>
     </div>
-    <button class="primary block" data-a="start">Start game — first night 🌙</button>` : '';
+    <button class="primary block" data-a="start">${t('Start game: first night 🌙')}</button>` : '';
   return `${scriptCard}
-    <div class="card"><h2>Characters for ${ps.length} players</h2>
-      <p class="small muted">Recommended: ${t} Townsfolk · ${o} Outsider · ${m} Minion · ${d} Demon. Selected ${S.selection.length}/${ps.length}.</p>
-      <div class="grid2"><button data-a="randomRoles">🎲 Random pick</button><button class="primary" data-a="deal" ${S.selection.length === ps.length ? '' : 'disabled'}>Deal ${S.dealt ? 'again' : ''}</button></div>
+    <div class="card"><h2>${t('Characters for {n} players', { n: ps.length })}</h2>
+      <p class="small muted">${t('Recommended: {t} Townsfolk · {o} Outsider · {m} Minion · {d} Demon. Selected {s}/{n}.', { t: nt, o: no, m: nm, d: nd, s: S.selection.length, n: ps.length })}</p>
+      <div class="grid2"><button data-a="randomRoles">${t('🎲 Random pick')}</button><button class="primary" data-a="deal" ${S.selection.length === ps.length ? '' : 'disabled'}>${S.dealt ? t('Deal again') : t('Deal')}</button></div>
     </div>
     ${dealt}${groups}`;
 }
@@ -637,20 +657,20 @@ function viewGrim() {
   const ps = seatList();
   const alive = alivePlayers().length;
   return `
-    <div class="card"><div class="row"><div class="grow"><b>${alive}</b> alive · <b>${threshold()}</b> votes to execute</div>
-      ${S.phase !== 'over' ? `<button class="sm" data-a="tab" data-k="${S.phase}">Go to ${S.phase} →</button>` : ''}</div>
-      ${S.announce && !S.winner ? `<p class="small muted">${esc(S.announce)}</p>` : ''}</div>
+    <div class="card"><div class="row"><div class="grow">${t('{a} alive · {n} votes to execute', { a: `<b>${alive}</b>`, n: `<b>${threshold()}</b>` })}</div>
+      ${S.phase !== 'over' ? `<button class="sm" data-a="tab" data-k="${S.phase}">${S.phase === 'day' ? t('Go to day →') : t('Go to night →')}</button>` : ''}</div>
+      ${S.announce && !S.winner ? `<p class="small muted">${esc(tx(S.announce))}</p>` : ''}</div>
     <div class="card list" style="padding:4px">${ps.map((p, i) => `
       <div class="item tap ${p.alive ? '' : 'dead'}" data-a="sheetPlayer" data-pid="${p.pid}"><span class="seat">${i + 1}</span>
         <div class="main"><div class="name">${esc(p.name)} ${p.connected ? '' : '⚠'}</div>
-          <div class="row" style="gap:4px;margin-top:2px">${rolePill(p.role)}${p.fakeRole ? pill('', 'thinks ' + role(p.fakeRole).name) : ''}
-          ${p.cursed ? pill('evil', '🕸 cursed') : ''}${p.protected ? pill('good', '🌿 safe') : ''}
-          ${!p.alive ? pill('dead', '💀 dead · ' + (canVote(p) ? 'ghost vote left' : 'no vote')) : ''}
-          ${p.role === 'sentinel' && p.sentinelUsed ? pill('', 'used') : ''}${p.role === 'lucky' && p.luckyUsed ? pill('', 'luck used') : ''}
-          ${p.role === 'duelist' && p.duelUsed ? pill('', 'duel used') : ''}${p.role === 'hollow' && p.hollowUsed ? pill('', 'double used') : ''}</div></div>
+          <div class="row" style="gap:4px;margin-top:2px">${rolePill(p.role)}${p.fakeRole ? pill('', t('thinks {role}', { role: role(p.fakeRole).name })) : ''}
+          ${p.cursed ? pill('evil', t('🕸 cursed')) : ''}${p.protected ? pill('good', t('🌿 safe')) : ''}
+          ${!p.alive ? pill('dead', canVote(p) ? t('💀 dead · ghost vote left') : t('💀 dead · no vote')) : ''}
+          ${p.role === 'sentinel' && p.sentinelUsed ? pill('', t('used')) : ''}${p.role === 'lucky' && p.luckyUsed ? pill('', t('luck used')) : ''}
+          ${p.role === 'duelist' && p.duelUsed ? pill('', t('duel used')) : ''}${p.role === 'hollow' && p.hollowUsed ? pill('', t('double used')) : ''}</div></div>
       </div>`).join('')}</div>
-    <div class="card small">Bluffs given to Demon: ${S.bluffs.map(rolePill).join(' ')}</div>
-    ${S.phase === 'over' ? '<button class="primary block" data-a="newGame">New game with same players</button>' : ''}`;
+    <div class="card small">${t('Bluffs given to Demon:')} ${S.bluffs.map(rolePill).join(' ')}</div>
+    ${S.phase === 'over' ? `<button class="primary block" data-a="newGame">${t('New game with same players')}</button>` : ''}`;
 }
 
 function playerChips(st, max) {
@@ -661,124 +681,126 @@ function playerChips(st, max) {
 }
 
 function viewNight() {
-  if (S.phase !== 'night') return `<div class="card">Not night.</div>`;
+  if (S.phase !== 'night') return `<div class="card">${t('Not night.')}</div>`;
   const steps = S.steps.map((st, i) => {
     const cur = i === S.stepIdx; const done = i < S.stepIdx;
     let head = '', body = '';
     if (st.kind === 'minion_info') {
       const { demon, minions } = minionInfoText();
-      head = '😈 Minions wake & learn the Demon';
-      body = `<p class="small">Minions: ${minions.map(x => esc(x.name)).join(', ') || '—'} · Demon: ${demon.map(x => esc(x.name)).join(', ')}</p>
-        <button class="primary block" data-a="sendMinionInfo">Send to Minions & next</button>`;
+      head = t('😈 Minions wake & learn the Demon');
+      body = `<p class="small">${t('Minions: {m} · Demon: {d}', { m: minions.map(x => esc(x.name)).join(', ') || '—', d: demon.map(x => esc(x.name)).join(', ') })}</p>
+        <button class="primary block" data-a="sendMinionInfo">${t('Send to Minions & next')}</button>`;
     } else if (st.kind === 'demon_info') {
-      head = '👹 Demon wakes: learns Minions + 3 bluffs';
-      body = `<p class="small">Bluffs: ${S.bluffs.map(rolePill).join(' ')}</p><button class="primary block" data-a="sendDemonInfo">Send to Demon & next</button>`;
+      head = t('👹 Demon wakes: learns Minions + 3 bluffs');
+      body = `<p class="small">${t('Bluffs:')} ${S.bluffs.map(rolePill).join(' ')}</p><button class="primary block" data-a="sendDemonInfo">${t('Send to Demon & next')}</button>`;
     } else if (st.kind === 'dawn') {
-      head = '🌅 Dawn';
+      head = t('🌅 Dawn');
       if (cur) {
         if (!S.dawn) computeDawn();
-        body = `<p class="small muted">Tap to toggle who dies. Notes:</p>
+        body = `<p class="small muted">${t('Tap to toggle who dies. Notes:')}</p>
           ${S.dawn.notes.map(n => `<div class="small">• ${esc(n)}</div>`).join('')}
           <div class="grid2" style="margin-top:8px">${alivePlayers().map(x => `<button class="sm ${S.dawn.deaths.includes(x.pid) ? 'danger' : ''}" data-a="toggleDeath" data-pid="${x.pid}">${S.dawn.deaths.includes(x.pid) ? '💀 ' : ''}${esc(x.name)}</button>`).join('')}</div>
-          <button class="primary block" style="margin-top:10px" data-a="startDay">Wake everyone — start Day ${S.day + 1} ☀️</button>`;
+          <button class="primary block" style="margin-top:10px" data-a="startDay">${t('Wake everyone: start Day {n} ☀️', { n: S.day + 1 })}</button>`;
       }
     } else {
       const { p, r, choose, upTo } = stepDef(st);
       const max = upTo || choose;
       const mal = malfunctioning(p);
-      head = `${r.icon} ${esc(r.name)} — ${esc(p.name)} ${p.role === 'sleepwalker' ? pill('warn', 'Sleepwalker') : ''}${p.cursed ? pill('evil', 'cursed') : ''}`;
+      head = `${r.icon} ${esc(r.name)} — ${esc(p.name)} ${p.role === 'sleepwalker' ? pill('warn', role('sleepwalker').name) : ''}${p.cursed ? pill('evil', t('cursed')) : ''}`;
       if (cur || (done && st.choice.length)) {
         // Cache so random suggestions (Archivist, Twin) stay stable across re-renders.
-        if (st.sugFor !== st.choice.join(',') || st.sug == null) { st.sug = suggestion(st); st.sugFor = st.choice.join(','); }
+        const sugKey = st.choice.join(',') + '|' + LANG;
+        if (st.sugFor !== sugKey || st.sug == null) { st.sug = suggestion(st); st.sugFor = sugKey; }
         const sug = st.sug;
         const note = suggestionNote(st);
         const reminder = stepDef(st).n.reminder;
         body = `<p class="small muted">${esc(r.ability)}</p>
           ${reminder ? `<p class="small" style="border-left:3px solid var(--accent);padding-left:8px">${esc(reminder)}</p>` : ''}
-          ${!p.alive ? '<p class="small">💀 Dead — skip unless their ability says otherwise.</p>' : ''}
-          ${cur ? `<div class="row small muted" style="margin-bottom:6px">Players to choose:
+          ${!p.alive ? `<p class="small">${t('💀 Dead: skip unless their ability says otherwise.')}</p>` : ''}
+          ${cur ? `<div class="row small muted" style="margin-bottom:6px">${t('Players to choose:')}
             ${[0, 1, 2, 3].map(k => `<button class="sm ${choose === k && !(upTo > choose) ? 'primary' : ''}" data-a="setChoose" data-key="${esc(st.key)}" data-n="${k}">${k}</button>`).join('')}</div>` : ''}
-          ${max ? `<div class="row"><button class="sm ${st.status === 'prompted' ? '' : 'good'}" data-a="prompt" data-key="${esc(st.key)}" ${p.connected ? '' : 'disabled'}>📱 ${st.status === 'prompted' ? 'Re-send' : 'Ask player to choose'}</button>
-            <span class="small muted">${st.status === 'prompted' ? 'Waiting for answer…' : st.status === 'answered' ? 'Answered ✓' : ''}</span></div>
-            <p class="small muted" style="margin:6px 0 0">Or pick for them (${max > choose ? choose + '–' + max : choose}):</p>${playerChips(st, max)}` : ''}
-          ${max && st.choice.length ? `<p><b>Chose:</b> ${st.choice.map(pname).map(esc).join(', ')}${mal && stepDef(st).n.effect ? ' — ⚠ no effect (malfunctioning)' : ''}</p>` : ''}
+          ${max ? `<div class="row"><button class="sm ${st.status === 'prompted' ? '' : 'good'}" data-a="prompt" data-key="${esc(st.key)}" ${p.connected ? '' : 'disabled'}>📱 ${st.status === 'prompted' ? t('Re-send') : t('Ask player to choose')}</button>
+            <span class="small muted">${st.status === 'prompted' ? t('Waiting for answer…') : st.status === 'answered' ? t('Answered ✓') : ''}</span></div>
+            <p class="small muted" style="margin:6px 0 0">${t('Or pick for them ({n}):', { n: max > choose ? choose + '–' + max : choose })}</p>${playerChips(st, max)}` : ''}
+          ${max && st.choice.length ? `<p><b>${t('Chose:')}</b> ${st.choice.map(pname).map(esc).join(', ')}${mal && stepDef(st).n.effect ? ' — ' + t('⚠ no effect (malfunctioning)') : ''}</p>` : ''}
           ${stepDef(st).n.info || r.imported || stepDef(st).n.reminder ? `
-            <label>Info to send ${sug ? '' : '(waiting for choice)'}</label>
-            ${sug ? `<p class="small muted">True answer: ${esc(sug)}</p>` : ''}
+            <label>${t('Info to send')} ${sug ? '' : t('(waiting for choice)')}</label>
+            ${sug ? `<p class="small muted">${t('True answer: {s}', { s: esc(sug) })}</p>` : ''}
             ${note ? `<p class="small" style="color:var(--warn)">${esc(note)}</p>` : ''}
-            <textarea id="info-${esc(st.key)}" placeholder="Information for ${esc(p.name)}">${esc(st.sent || sug || '')}</textarea>
-            <button class="sm good" data-a="sendInfo" data-key="${esc(st.key)}">Send info</button>${st.sent ? ' <span class="small muted">sent ✓</span>' : ''}` : ''}
-          ${cur ? `<div class="grid2" style="margin-top:10px"><button data-a="prevStep" ${i === 0 ? 'disabled' : ''}>← Back</button><button class="primary" data-a="nextStep">Done →</button></div>` : ''}`;
+            <textarea id="info-${esc(st.key)}" placeholder="${esc(t('Information for {name}', { name: p.name }))}">${esc(st.sent || sug || '')}</textarea>
+            <button class="sm good" data-a="sendInfo" data-key="${esc(st.key)}">${t('Send info')}</button>${st.sent ? ` <span class="small muted">${t('sent ✓')}</span>` : ''}` : ''}
+          ${cur ? `<div class="grid2" style="margin-top:10px"><button data-a="prevStep" ${i === 0 ? 'disabled' : ''}>${t('← Back')}</button><button class="primary" data-a="nextStep">${t('Done →')}</button></div>` : ''}`;
       }
     }
     return `<div class="step ${cur ? 'current' : ''} ${done ? 'done' : ''}" ${!cur ? `data-a="gotoStep" data-i="${i}"` : ''}><div class="row"><b class="grow">${head}</b>${done ? '✓' : ''}</div>${cur || (done && body && st.kind === 'role') ? body : ''}</div>`;
   }).join('');
-  return `<div class="card small muted">Night ${S.night}. Players should keep eyes closed; wake each in order (tap "Ask player" to put the choice on their phone). ${S.debtorNight ? '<br><b>Debtor executed: Demon may kill twice tonight.</b>' : ''}</div>${steps}`;
+  return `<div class="card small muted">${t('Night {n}. Players should keep eyes closed; wake each in order (tap "Ask player" to put the choice on their phone).', { n: S.night })} ${S.debtorNight ? `<br><b>${t('Debtor executed: Demon may kill twice tonight.')}</b>` : ''}</div>${steps}`;
 }
 
 function viewDay() {
-  if (S.phase !== 'day') return `<div class="card">Not day.</div>`;
+  if (S.phase !== 'day') return `<div class="card">${t('Not day.')}</div>`;
   const v = S.vote;
   const reqs = S.requests.map((r, i) => r.kind === 'nominate' ? `
-      <div class="item"><div class="main"><b>${esc(pname(r.pid))}</b> nominates <b>${esc(pname(r.target))}</b>
-        ${nominationProblem(r.pid, r.target) ? `<div class="small" style="color:var(--warn)">${esc(nominationProblem(r.pid, r.target))}</div>` : ''}</div>
-        <button class="sm primary" data-a="acceptNom" data-i="${i}">Open vote</button><button class="sm" data-a="dropReq" data-i="${i}">✕</button></div>`
-    : `<div class="item"><div class="main"><b>${esc(pname(r.pid))}</b> challenges <b>${esc(pname(r.target))}</b> (claims Duelist)
-        <div class="small muted">Real: ${rolePill(S.players[r.pid].role)} → ${rolePill(S.players[r.target].role)}. Suggested: ${S.players[r.pid].role === 'duelist' && !S.players[r.pid].cursed && role(S.players[r.target].role).team === 'minion' ? 'DIES' : 'nothing'}</div></div>
-        <button class="sm danger" data-a="duel" data-i="${i}" data-kill="1">Dies</button><button class="sm" data-a="duel" data-i="${i}" data-kill="0">Nothing</button></div>`).join('');
+      <div class="item"><div class="main">${t('{a} nominates {b}', { a: `<b>${esc(pname(r.pid))}</b>`, b: `<b>${esc(pname(r.target))}</b>` })}
+        ${nominationProblem(r.pid, r.target) ? `<div class="small" style="color:var(--warn)">${esc(tx(nominationProblem(r.pid, r.target)))}</div>` : ''}</div>
+        <button class="sm primary" data-a="acceptNom" data-i="${i}">${t('Open vote')}</button><button class="sm" data-a="dropReq" data-i="${i}">✕</button></div>`
+    : `<div class="item"><div class="main">${t('{a} challenges {b} (claims Duelist)', { a: `<b>${esc(pname(r.pid))}</b>`, b: `<b>${esc(pname(r.target))}</b>` })}
+        <div class="small muted">${t('Real:')} ${rolePill(S.players[r.pid].role)} → ${rolePill(S.players[r.target].role)}. ${t('Suggested:')} ${S.players[r.pid].role === 'duelist' && !S.players[r.pid].cursed && role(S.players[r.target].role).team === 'minion' ? t('DIES') : t('nothing')}</div></div>
+        <button class="sm danger" data-a="duel" data-i="${i}" data-kill="1">${t('Dies')}</button><button class="sm" data-a="duel" data-i="${i}" data-kill="0">${t('Nothing')}</button></div>`).join('');
   let votePanel = '';
   if (v) {
     const rows = seatList().map(p => {
       const val = v.votes[p.pid];
       const ok = canVote(p);
-      return `<div class="item ${p.alive ? '' : 'dead'} ${ok ? '' : 'novote'}"><div class="main"><span class="name">${esc(p.name)}</span> ${!p.alive ? pill('dead', ok ? '👻 ghost vote' : '💀 cannot vote') : ''}${voteWeight(p) > 1 ? pill('', '×2') : ''}</div>
-        <button class="sm ${val === true ? 'okb' : ''}" data-a="hostVote" data-pid="${p.pid}" data-v="1" ${ok ? '' : 'disabled'}>✋ Yes</button>
-        <button class="sm ${val === false ? 'danger' : ''}" data-a="hostVote" data-pid="${p.pid}" data-v="0" ${ok ? '' : 'disabled'}>No</button></div>`;
+      return `<div class="item ${p.alive ? '' : 'dead'} ${ok ? '' : 'novote'}"><div class="main"><span class="name">${esc(p.name)}</span> ${!p.alive ? pill('dead', ok ? t('👻 ghost vote') : t('💀 cannot vote')) : ''}${voteWeight(p) > 1 ? pill('', '×2') : ''}</div>
+        <button class="sm ${val === true ? 'okb' : ''}" data-a="hostVote" data-pid="${p.pid}" data-v="1" ${ok ? '' : 'disabled'}>${t('✋ Yes')}</button>
+        <button class="sm ${val === false ? 'danger' : ''}" data-a="hostVote" data-pid="${p.pid}" data-v="0" ${ok ? '' : 'disabled'}>${t('No')}</button></div>`;
     }).join('');
     const yes = tallyYes(v);
     const voted = seatList().filter(p => canVote(p) && v.votes[p.pid] !== undefined).length;
     const eligible = seatList().filter(canVote).length;
     votePanel = `<div class="card"><h2>${esc(pname(v.nominator))} → ${esc(pname(v.nominee))}</h2>
-      <div class="votebig">${yes} <span class="small muted">/ ${threshold()} needed${S.highest ? ` · beat ${S.highest}` : ''}</span></div>
-      <p class="center small muted">${voted} of ${eligible} eligible voters have answered</p>
+      <div class="votebig">${yes} <span class="small muted">/ ${t('{n} needed', { n: threshold() })}${S.highest ? ' · ' + t('beat {n}', { n: S.highest }) : ''}</span></div>
+      <p class="center small muted">${t('{a} of {b} eligible voters have answered', { a: voted, b: eligible })}</p>
       <div class="list">${rows}</div>
-      <div class="grid2" style="margin-top:8px"><button data-a="cancelVote">Cancel</button><button class="primary" data-a="closeVote">Close vote & count</button></div></div>`;
+      <div class="grid2" style="margin-top:8px"><button data-a="cancelVote">${t('Cancel')}</button><button class="primary" data-a="closeVote">${t('Close vote & count')}</button></div></div>`;
   }
   return `
-    <div class="card"><div class="row"><div class="grow small">${esc(S.announce)}</div></div>
-      <div class="small muted">${alivePlayers().length} alive · ${threshold()} votes to execute</div>
-      ${S.block ? `<div class="banner evil" style="margin:8px 0 0">On the block: <b>${esc(pname(S.block.pid))}</b> (${S.block.votes})</div>` : ''}</div>
-    <div class="card"><div class="row"><div class="grow"><b>Nominations ${S.nomsOpen ? 'open' : 'closed'}</b>
-      <div class="small muted">${S.nomsOpen ? 'Players can nominate from their phones. You open each vote.' : 'Let the town talk first, then open nominations.'}</div></div>
-      <button class="${S.nomsOpen ? '' : 'good'}" data-a="toggleNoms" ${v ? 'disabled' : ''}>${S.nomsOpen ? 'Close' : 'Open'}</button></div></div>
-    ${reqs ? `<div class="card"><h3>Requests</h3><div class="list">${reqs}</div></div>` : ''}
+    <div class="card"><div class="row"><div class="grow small">${esc(tx(S.announce))}</div></div>
+      <div class="small muted">${t('{a} alive · {n} votes to execute', { a: alivePlayers().length, n: threshold() })}</div>
+      ${S.block ? `<div class="banner evil" style="margin:8px 0 0">${t('On the block: {name} ({n})', { name: `<b>${esc(pname(S.block.pid))}</b>`, n: S.block.votes })}</div>` : ''}</div>
+    <div class="card"><div class="row"><div class="grow"><b>${S.nomsOpen ? t('Nominations open') : t('Nominations closed')}</b>
+      <div class="small muted">${S.nomsOpen ? t('Players can nominate from their phones. You open each vote.') : t('Let the town talk first, then open nominations.')}</div></div>
+      <button class="${S.nomsOpen ? '' : 'good'}" data-a="toggleNoms" ${v ? 'disabled' : ''}>${S.nomsOpen ? t('Close') : t('Open')}</button></div></div>
+    ${reqs ? `<div class="card"><h3>${t('Requests')}</h3><div class="list">${reqs}</div></div>` : ''}
     ${votePanel}
-    ${!v ? `<div class="card"><h3>Start a nomination</h3>
-      <label>Nominator</label><select id="nomA">${alivePlayers().filter(p => !p.nominated).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
-      <label>Nominee</label><select id="nomB">${seatList().filter(p => !p.wasNominated).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
-      <button class="good block" style="margin-top:8px" data-a="manualNom">Open vote</button></div>` : ''}
-    ${S.nominations.length ? `<div class="card"><h3>Today's votes</h3>${S.nominations.map(n => `<div class="small">${esc(pname(n.nominator))} → <b>${esc(pname(n.nominee))}</b>: ${n.votes} <span class="muted">(${esc(n.voters.join(', '))})</span></div>`).join('')}</div>` : ''}
-    <button class="primary block" data-a="openEndDay" ${v ? 'disabled' : ''}>Close all voting & end the day 🌙</button>`;
+    ${!v ? `<div class="card"><h3>${t('Start a nomination')}</h3>
+      <label>${t('Nominator')}</label><select id="nomA">${alivePlayers().filter(p => !p.nominated).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
+      <label>${t('Nominee')}</label><select id="nomB">${seatList().filter(p => !p.wasNominated).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
+      <button class="good block" style="margin-top:8px" data-a="manualNom">${t('Open vote')}</button></div>` : ''}
+    ${S.nominations.length ? `<div class="card"><h3>${t("Today's votes")}</h3>${S.nominations.map(n => `<div class="small">${esc(pname(n.nominator))} → <b>${esc(pname(n.nominee))}</b>: ${n.votes} <span class="muted">(${esc(n.voters.join(', '))})</span></div>`).join('')}</div>` : ''}
+    <button class="primary block" data-a="openEndDay" ${v ? 'disabled' : ''}>${t('Close all voting & end the day 🌙')}</button>`;
 }
 
 function viewLog() {
-  return `<div class="card">${S.log.slice().reverse().map(l => `<div class="small" style="margin-bottom:6px"><span class="pill">${l.phase}</span> ${esc(l.text)}</div>`).join('') || '<p class="muted">Nothing yet.</p>'}</div>`;
+  return `<div class="card">${S.log.slice().reverse().map(l => `<div class="small" style="margin-bottom:6px"><span class="pill">${l.phase}</span> ${esc(l.text)}</div>`).join('') || `<p class="muted">${t('Nothing yet.')}</p>`}</div>`;
 }
 function viewMore() {
+  const gv = S.ghostVotes !== false;
   return `
-    <div class="card stack"><h2>Broadcast</h2>
-      <textarea id="bcast" placeholder="Message to every player"></textarea>
-      <button class="good block" data-a="broadcast">Send to all</button></div>
-    ${S.locked && S.phase !== 'over' ? `<div class="card stack"><h2>Phase control</h2>
-      <div class="grid2"><button data-a="forceNight">Jump to night</button><button data-a="forceDay">Jump to day</button></div>
-      <div class="grid2"><button class="good" data-a="win" data-side="good">Good wins</button><button class="danger" data-a="win" data-side="evil">Evil wins</button></div></div>` : ''}
-    <div class="card stack"><h2>Rules</h2>
-      <div class="row"><div class="grow"><b>Ghost votes</b><div class="small muted">${S.ghostVotes !== false
-        ? 'On (official rule): each dead player may vote once more for the rest of the game.'
-        : 'Off (house rule): dead players cannot vote at all.'}</div></div>
-        <button class="sm ${S.ghostVotes !== false ? 'okb' : ''}" data-a="toggleGhostVotes">${S.ghostVotes !== false ? 'On' : 'Off'}</button></div></div>
-    <div class="card stack"><h2>Room</h2><p class="small muted">Code <b>${S.room}</b>. State is saved on this device; refreshing is safe.</p>
-      <button class="danger block" data-a="endRoom">Close room & start over</button></div>`;
+    <div class="card stack"><h2>${t('Broadcast')}</h2>
+      <textarea id="bcast" placeholder="${esc(t('Message to every player'))}"></textarea>
+      <button class="good block" data-a="broadcast">${t('Send to all')}</button></div>
+    ${S.locked && S.phase !== 'over' ? `<div class="card stack"><h2>${t('Phase control')}</h2>
+      <div class="grid2"><button data-a="forceNight">${t('Jump to night')}</button><button data-a="forceDay">${t('Jump to day')}</button></div>
+      <div class="grid2"><button class="good" data-a="win" data-side="good">${t('Good wins')}</button><button class="danger" data-a="win" data-side="evil">${t('Evil wins')}</button></div></div>` : ''}
+    <div class="card stack"><h2>${t('Rules')}</h2>
+      <div class="row"><div class="grow"><b>${t('Ghost votes')}</b><div class="small muted">${gv
+        ? t('On (official rule): each dead player may vote once more for the rest of the game.')
+        : t('Off (house rule): dead players cannot vote at all.')}</div></div>
+        <button class="sm ${gv ? 'okb' : ''}" data-a="toggleGhostVotes">${gv ? t('On') : t('Off')}</button></div></div>
+    <div class="card stack"><h2>${t('Room')}</h2><p class="small muted">${t('Code {code}. State is saved on this device; refreshing is safe.', { code: `<b>${S.room}</b>` })}</p>
+      <button class="danger block" data-a="endRoom">${t('Close room & start over')}</button></div>`;
 }
 
 // ---------- sheets ----------
@@ -786,20 +808,20 @@ function renderSheet() {
   if (!sheet) { $sheet.innerHTML = ''; return; }
   if (sheet.type === 'player') {
     const p = S.players[sheet.pid]; if (!p) { sheet = null; $sheet.innerHTML = ''; return; }
-    const opts = (cur) => `<option value="">—</option>` + ROLES.map(r => `<option value="${r.id}" ${cur === r.id ? 'selected' : ''}>${r.icon} ${r.name} (${TEAM_LABEL[r.team]})</option>`).join('');
+    const opts = (cur) => `<option value="">—</option>` + ROLES.map(r => `<option value="${r.id}" ${cur === r.id ? 'selected' : ''}>${r.icon} ${esc(r.name)} (${teamLabel(r.team)})</option>`).join('');
     $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
       <div class="row"><h2 class="grow">${esc(p.name)}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
-      <label>Character</label><select data-ch="role" data-pid="${p.pid}">${opts(p.role)}</select>
-      <label>Thinks they are <span class="small">(for Drunk-style characters; their phone shows this one)</span></label><select data-ch="fakeRole" data-pid="${p.pid}">${opts(p.fakeRole)}</select>
+      <label>${t('Character')}</label><select data-ch="role" data-pid="${p.pid}">${opts(p.role)}</select>
+      <label>${t('Thinks they are')} <span class="small">${t('(for Drunk-style characters; their phone shows this one)')}</span></label><select data-ch="fakeRole" data-pid="${p.pid}">${opts(p.fakeRole)}</select>
       ${S.locked ? `<div class="grid2" style="margin-top:10px">
-        <button class="${p.alive ? 'danger' : 'okb'}" data-a="toggleAlive" data-pid="${p.pid}">${p.alive ? '💀 Kill' : '❤️ Revive'}</button>
-        <button data-a="toggleFlag" data-f="ghostVote" data-pid="${p.pid}">👻 Ghost vote: ${p.ghostVote ? 'yes' : 'used'}</button>
-        <button data-a="toggleFlag" data-f="cursed" data-pid="${p.pid}">🕸 Cursed: ${p.cursed ? 'yes' : 'no'}</button>
-        <button data-a="toggleFlag" data-f="protected" data-pid="${p.pid}">🌿 Safe: ${p.protected ? 'yes' : 'no'}</button>
+        <button class="${p.alive ? 'danger' : 'okb'}" data-a="toggleAlive" data-pid="${p.pid}">${p.alive ? t('💀 Kill') : t('❤️ Revive')}</button>
+        <button data-a="toggleFlag" data-f="ghostVote" data-pid="${p.pid}">${p.ghostVote ? t('👻 Ghost vote: yes') : t('👻 Ghost vote: used')}</button>
+        <button data-a="toggleFlag" data-f="cursed" data-pid="${p.pid}">${p.cursed ? t('🕸 Cursed: yes') : t('🕸 Cursed: no')}</button>
+        <button data-a="toggleFlag" data-f="protected" data-pid="${p.pid}">${p.protected ? t('🌿 Safe: yes') : t('🌿 Safe: no')}</button>
       </div>` : ''}
-      <label>Private message</label><textarea id="pmsg" placeholder="Only ${esc(p.name)} sees this"></textarea>
-      <button class="good block" style="margin-top:6px" data-a="pmsg" data-pid="${p.pid}">Send</button>
-      ${p.msgs.length ? `<h3 style="margin-top:12px">Sent to them</h3>${p.msgs.slice(-6).reverse().map(m => `<div class="msg small">${esc(m.text)}</div>`).join('')}` : ''}
+      <label>${t('Private message')}</label><textarea id="pmsg" placeholder="${esc(t('Only {name} sees this', { name: p.name }))}"></textarea>
+      <button class="good block" style="margin-top:6px" data-a="pmsg" data-pid="${p.pid}">${t('Send')}</button>
+      ${p.msgs.length ? `<h3 style="margin-top:12px">${t('Sent to them')}</h3>${p.msgs.slice(-6).reverse().map(m => `<div class="msg small">${esc(tx(m.text))}</div>`).join('')}` : ''}
     </div></div>`;
   } else if (sheet.type === 'endDay') {
     const ranked = S.nominations.slice().sort((a, b) => b.votes - a.votes);
@@ -807,40 +829,39 @@ function renderSheet() {
     const top = ranked[0];
     const tie = !b && top && top.votes >= threshold();
     $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
-      <div class="row"><h2 class="grow">End Day ${S.day}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
-      <h3>All votes today</h3>
+      <div class="row"><h2 class="grow">${t('End Day {n}', { n: S.day })}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
+      <h3>${t('All votes today')}</h3>
       ${ranked.length ? ranked.map(n => `<div class="row small" style="margin-bottom:6px"><div class="grow">${esc(pname(n.nominator))} → <b>${esc(pname(n.nominee))}</b>
-          <div class="muted">${n.voters.length ? '✋ ' + esc(n.voters.join(', ')) : 'no hands'}</div></div>
-          ${pill(S.block && S.block.pid === n.nominee ? 'evil' : '', n.votes + ' / ' + threshold())}</div>`).join('') : '<p class="muted small">No nominations today.</p>'}
+          <div class="muted">${n.voters.length ? '✋ ' + esc(n.voters.join(', ')) : t('no hands')}</div></div>
+          ${pill(S.block && S.block.pid === n.nominee ? 'evil' : '', n.votes + ' / ' + threshold())}</div>`).join('') : `<p class="muted small">${t('No nominations today.')}</p>`}
       <hr>
-      ${b ? `<p>Most votes: <b>${esc(b.name)}</b> with ${S.block.votes}. ${rolePill(b.role)}</p>
-          <p class="small muted">Check the characters in play: some abilities stop the execution or keep the player alive.</p>
-          <button class="danger block" data-a="endDay" data-mode="kill">💀 Execute ${esc(b.name)}: they die</button>
-          <div class="grid2" style="margin-top:8px"><button data-a="endDay" data-mode="survive">Executed, but survives</button><button data-a="endDay" data-mode="none">No execution</button></div>`
-        : `<p>${tie ? `Tie at ${top.votes}: nobody is executed.` : 'Nobody reached enough votes: nobody is executed.'}</p>
-          <button class="primary block" data-a="endDay" data-mode="none">End day without execution</button>`}
+      ${b ? `<p>${t('Most votes: {name} with {n}.', { name: `<b>${esc(b.name)}</b>`, n: S.block.votes })} ${rolePill(b.role)}</p>
+          <p class="small muted">${t('Check the characters in play: some abilities stop the execution or keep the player alive.')}</p>
+          <button class="danger block" data-a="endDay" data-mode="kill">${t('💀 Execute {name}: they die', { name: esc(b.name) })}</button>
+          <div class="grid2" style="margin-top:8px"><button data-a="endDay" data-mode="survive">${t('Executed, but survives')}</button><button data-a="endDay" data-mode="none">${t('No execution')}</button></div>`
+        : `<p>${tie ? t('Tie at {n}: nobody is executed.', { n: top.votes }) : t('Nobody reached enough votes: nobody is executed.')}</p>
+          <button class="primary block" data-a="endDay" data-mode="none">${t('End day without execution')}</button>`}
     </div></div>`;
   } else if (sheet.type === 'import') {
     const lib = store.get('nf_library', []);
     $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
-      <div class="row"><h2 class="grow">Import a script</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
-      <p class="small muted">Paste or load the JSON exported by an online script builder: a list like
-        <code>[{"id":"_meta","name":"…"}, "characterid", {…custom character…}]</code>.
-        Custom characters with their own name/team/ability work as-is. Plain ids need a character library (below).</p>
-      <label>Script URL (raw JSON)</label><input id="scriptUrl" type="url" placeholder="https://…/script.json" value="${esc(sheet.url || '')}">
-      <label>…or a file</label><input type="file" accept=".json,application/json" data-ch="file" data-target="scriptText">
-      <label>…or paste JSON</label><textarea id="scriptText" placeholder='[{"id":"_meta","name":"My script"}, …]'>${esc(sheet.text || '')}</textarea>
-      ${sheet.err ? `<p class="small" style="color:var(--evil)">${esc(sheet.err)}</p>` : ''}
-      <div class="grid2" style="margin-top:8px"><button data-a="useBuiltin">Use built-in set</button><button class="primary" data-a="importScript" ${sheet.busy ? 'disabled' : ''}>Import script</button></div>
+      <div class="row"><h2 class="grow">${t('Import a script')}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
+      <p class="small muted">${t('Paste or load the JSON exported by an online script builder: a list like')}
+        <code>[{"id":"_meta","name":"…"}, "characterid", {…}]</code>.
+        ${t('Custom characters with their own name/team/ability work as-is. Plain ids need a character library (below).')}</p>
+      <label>${t('Script URL (raw JSON)')}</label><input id="scriptUrl" type="url" placeholder="https://…/script.json" value="${esc(sheet.url || '')}">
+      <label>${t('…or a file')}</label><input type="file" accept=".json,application/json" data-ch="file" data-target="scriptText">
+      <label>${t('…or paste JSON')}</label><textarea id="scriptText" placeholder='[{"id":"_meta","name":"My script"}, …]'>${esc(sheet.text || '')}</textarea>
+      ${sheet.err ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.err))}</p>` : ''}
+      <div class="grid2" style="margin-top:8px"><button data-a="useBuiltin">${t('Use built-in set')}</button><button class="primary" data-a="importScript" ${sheet.busy ? 'disabled' : ''}>${t('Import script')}</button></div>
       <hr>
-      <h3>Character library <span class="pill">${lib.length} characters</span></h3>
-      <p class="small muted">A JSON list of character definitions (<code>id, name, team, ability, firstNight, otherNight, …reminder</code>)
-        used to look up scripts that only list ids. Saved on this device.</p>
-      <label>Library URL</label><input id="libUrl" type="url" placeholder="https://…/characters.json">
-      <label>…or a file</label><input type="file" accept=".json,application/json" data-ch="file" data-target="libText">
-      <label>…or paste JSON</label><textarea id="libText"></textarea>
-      ${sheet.libErr ? `<p class="small" style="color:var(--evil)">${esc(sheet.libErr)}</p>` : ''}
-      <div class="grid2" style="margin-top:8px"><button data-a="clearLibrary" ${lib.length ? '' : 'disabled'}>Clear library</button><button class="good" data-a="importLibrary" ${sheet.busy ? 'disabled' : ''}>Import library</button></div>
+      <h3>${t('Character library')} <span class="pill">${t('{n} characters', { n: lib.length })}</span></h3>
+      <p class="small muted">${t('A JSON list of character definitions (id, name, team, ability, firstNight, otherNight, …reminder) used to look up scripts that only list ids. Saved on this device.')}</p>
+      <label>${t('Library URL')}</label><input id="libUrl" type="url" placeholder="https://…/characters.json">
+      <label>${t('…or a file')}</label><input type="file" accept=".json,application/json" data-ch="file" data-target="libText">
+      <label>${t('…or paste JSON')}</label><textarea id="libText"></textarea>
+      ${sheet.libErr ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.libErr))}</p>` : ''}
+      <div class="grid2" style="margin-top:8px"><button data-a="clearLibrary" ${lib.length ? '' : 'disabled'}>${t('Clear library')}</button><button class="good" data-a="importLibrary" ${sheet.busy ? 'disabled' : ''}>${t('Import library')}</button></div>
     </div></div>`;
   }
 }
@@ -863,8 +884,8 @@ async function importScript() {
     const parsed = ScriptImport.parse(await readSource(src), store.get('nf_library', []));
     S.script = parsed; applyScript();
     S.selection = []; S.dealt = false; S.bluffs = [];
-    log(`Script imported: ${parsed.name} (${parsed.roles.length} characters).`);
-    toast(`Imported "${parsed.name}": ${parsed.roles.length} characters` + (parsed.missing.length ? `, ${parsed.missing.length} unknown` : ''));
+    log(L('Script imported: {name} ({n} characters).', { name: parsed.name, n: parsed.roles.length }));
+    toast(t('Imported "{name}": {n} characters', { name: parsed.name, n: parsed.roles.length }) + (parsed.missing.length ? ', ' + t('{n} unknown', { n: parsed.missing.length }) : ''));
     sheet = null; save();
   } catch (e) {
     sheet.busy = false; sheet.err = e.message; renderSheet();
@@ -876,7 +897,7 @@ async function importLibrary() {
   try {
     const list = ScriptImport.parseLibrary(await readSource(src));
     store.set('nf_library', list);
-    toast(`Library saved: ${list.length} characters. Now import your script.`);
+    toast(t('Library saved: {n} characters. Now import your script.', { n: list.length }));
     sheet.busy = false; renderSheet();
   } catch (e) {
     sheet.busy = false; sheet.libErr = e.message; renderSheet();
@@ -888,7 +909,7 @@ document.addEventListener('change', (e) => {
   const el = e.target; if (!el.dataset.ch) return;
   if (el.dataset.ch === 'file') {
     const f = el.files && el.files[0]; if (!f) return;
-    f.text().then(t => { document.getElementById(el.dataset.target).value = t; });
+    f.text().then(txt => { document.getElementById(el.dataset.target).value = txt; });
     return;
   }
   const p = S.players[el.dataset.pid]; if (!p) return;
@@ -900,7 +921,11 @@ document.addEventListener('change', (e) => {
       const free = ROLES.find(r => r.team === 'townsfolk' && !seatList().some(x => x.role === r.id));
       p.fakeRole = free ? free.id : null;
     }
-    if (S.locked && p.role) { const r = role(shownRole(p)); msg(p.pid, `Your character is now the ${r.name}. ${r.ability}`); log(`${p.name} is now ${role(p.role).name}.`); }
+    if (S.locked && p.role) {
+      const r = role(shownRole(p));
+      msg(p.pid, L('Your character is now the {role}. {ability}', { role: R(r), ability: RA(r) }));
+      log(L('{name} is now {role}.', { name: p.name, role: roleRef(p.role) }));
+    }
   } else if (el.dataset.ch === 'fakeRole') { p.fakeRole = el.value || null; }
   save();
 });
@@ -921,7 +946,7 @@ document.addEventListener('click', (e) => {
       if (j >= 0 && j < S.seats.length) [S.seats[i], S.seats[j]] = [S.seats[j], S.seats[i]];
       save(); break;
     }
-    case 'kick': if (confirm(`Remove ${pname(d.pid)}?`)) { net.send({ t: 'kick', pid: d.pid }); } break;
+    case 'kick': if (confirm(t('Remove {name}?', { name: pname(d.pid) }))) { net.send({ t: 'kick', pid: d.pid }); } break;
     case 'toggleRole': {
       const i = S.selection.indexOf(d.id);
       if (i >= 0) S.selection.splice(i, 1); else S.selection.push(d.id);
@@ -931,22 +956,22 @@ document.addEventListener('click', (e) => {
     case 'openImport': sheet = { type: 'import' }; renderSheet(); break;
     case 'importScript': importScript(); break;
     case 'importLibrary': importLibrary(); break;
-    case 'clearLibrary': if (confirm('Remove the saved character library?')) { store.del('nf_library'); renderSheet(); } break;
-    case 'useBuiltin': S.script = null; applyScript(); S.selection = []; S.dealt = false; S.bluffs = []; sheet = null; toast('Using the built-in Nightfall set'); save(); break;
+    case 'clearLibrary': if (confirm(t('Remove the saved character library?'))) { store.del('nf_library'); renderSheet(); } break;
+    case 'useBuiltin': S.script = null; applyScript(); S.selection = []; S.dealt = false; S.bluffs = []; sheet = null; toast(t('Using the built-in Nightfall set')); save(); break;
     case 'setChoose': if (st) { st.chooseN = Number(d.n); st.choice = st.choice.slice(0, Number(d.n)); save(); } break;
-    case 'toggleGhostVotes': S.ghostVotes = !(S.ghostVotes !== false); log(`Ghost votes ${S.ghostVotes ? 'on' : 'off'}.`); save(); break;
+    case 'toggleGhostVotes': S.ghostVotes = !(S.ghostVotes !== false); log(L(S.ghostVotes ? 'Ghost votes on.' : 'Ghost votes off.')); save(); break;
     case 'deal': deal(); break;
     case 'start': startGame(); break;
     case 'sheetPlayer': sheet = { type: 'player', pid: d.pid }; renderSheet(); break;
     case 'closeSheet': sheet = null; renderSheet(); break;
     case 'toggleAlive': {
       const p = S.players[d.pid];
-      if (p.alive) killPlayer(p.pid, 'Storyteller'); else { p.alive = true; p.ghostVote = true; log(`${p.name} revived.`); }
+      if (p.alive) killPlayer(p.pid, 'Storyteller'); else { p.alive = true; p.ghostVote = true; log(L('{name} revived.', { name: p.name })); }
       save(); break;
     }
     case 'toggleFlag': { const p = S.players[d.pid]; p[d.f] = !p[d.f]; save(); break; }
-    case 'pmsg': { const t = document.getElementById('pmsg').value.trim(); if (t) { msg(d.pid, t); toast('Sent'); save(); } break; }
-    case 'broadcast': { const t = document.getElementById('bcast').value.trim(); if (t) { msgAll('📣 ' + t); toast('Sent to all'); save(); } break; }
+    case 'pmsg': { const txt = document.getElementById('pmsg').value.trim(); if (txt) { msg(d.pid, txt); toast(t('Sent')); save(); } break; }
+    case 'broadcast': { const txt = document.getElementById('bcast').value.trim(); if (txt) { msgAll('📣 ' + txt); toast(t('Sent to all')); save(); } break; }
     case 'sendMinionInfo': sendMinionInfo(); S.stepIdx++; save(); break;
     case 'sendDemonInfo': sendDemonInfo(); S.stepIdx++; save(); break;
     case 'prompt': promptPlayer(st); break;
@@ -959,8 +984,8 @@ document.addEventListener('click', (e) => {
       save(); break;
     }
     case 'sendInfo': {
-      const t = document.getElementById('info-' + d.key).value.trim();
-      if (t) { msg(st.pid, '🌙 ' + t); st.sent = t; log(`Info to ${pname(st.pid)} (${role(st.roleId).name}): ${t}`); toast('Info sent'); save(); }
+      const txt = document.getElementById('info-' + d.key).value.trim();
+      if (txt) { msg(st.pid, '🌙 ' + txt); st.sent = txt; log(L('Info to {name} ({role}): {text}', { name: pname(st.pid), role: roleRef(st.roleId), text: txt })); toast(t('Info sent')); save(); }
       break;
     }
     case 'nextStep': {
@@ -979,30 +1004,30 @@ document.addEventListener('click', (e) => {
     }
     case 'startDay': startDay(); break;
     case 'acceptNom': { const r = S.requests[Number(d.i)]; if (r) openVote(r.pid, r.target); break; }
-    case 'dropReq': { const r = S.requests.splice(Number(d.i), 1)[0]; if (r) msg(r.pid, 'Your request was declined by the Storyteller.'); save(); break; }
+    case 'dropReq': { const r = S.requests.splice(Number(d.i), 1)[0]; if (r) msg(r.pid, L('Your request was declined by the Storyteller.')); save(); break; }
     case 'duel': resolveDuel(Number(d.i), d.kill === '1'); break;
     case 'manualNom': openVote(document.getElementById('nomA').value, document.getElementById('nomB').value); break;
     case 'hostVote': if (S.vote) { S.vote.votes[d.pid] = d.v === '1'; save(); } break;
-    case 'cancelVote': if (S.vote) { S.players[S.vote.nominator].nominated = false; S.players[S.vote.nominee].wasNominated = false; S.vote = null; S.announce = 'Vote cancelled.'; save(); } break;
+    case 'cancelVote': if (S.vote) { S.players[S.vote.nominator].nominated = false; S.players[S.vote.nominee].wasNominated = false; S.vote = null; S.announce = L('Vote cancelled.'); save(); } break;
     case 'closeVote': closeVote(); break;
-    case 'openEndDay': if (S.vote) toast('Close the open vote first.'); else { sheet = { type: 'endDay' }; renderSheet(); } break;
+    case 'openEndDay': if (S.vote) toast(t('Close the open vote first.')); else { sheet = { type: 'endDay' }; renderSheet(); } break;
     case 'endDay': sheet = null; endDay(d.mode); break;
     case 'toggleNoms': {
       S.nomsOpen = !S.nomsOpen;
       if (!S.nomsOpen) S.requests = S.requests.filter(r => r.kind !== 'nominate');
-      S.announce = S.nomsOpen ? 'Nominations are open.' : 'Nominations are closed.';
-      msgAll('📣 ' + S.announce); log(S.announce); save(); break;
+      S.announce = L(S.nomsOpen ? 'Nominations are open.' : 'Nominations are closed.');
+      msgAll(['📣 ', S.announce]); log(S.announce); save(); break;
     }
-    case 'forceNight': if (confirm('Skip to night?')) { S.vote = null; S.block = null; startNight(); } break;
-    case 'forceDay': if (confirm('Skip to day (applies dawn deaths)?')) startDay(); break;
-    case 'win': if (confirm(`Declare ${d.side} the winner?`)) { endGame(d.side, 'Storyteller decision.'); save(); } break;
+    case 'forceNight': if (confirm(t('Skip to night?'))) { S.vote = null; S.block = null; startNight(); } break;
+    case 'forceDay': if (confirm(t('Skip to day (applies dawn deaths)?'))) startDay(); break;
+    case 'win': if (confirm(t(d.side === 'good' ? 'Declare good the winner?' : 'Declare evil the winner?'))) { endGame(d.side, L('Storyteller decision.')); save(); } break;
     case 'newGame': {
       const keep = { room: S.room, hostToken: S.hostToken, seats: S.seats, players: S.players, script: S.script, ghostVotes: S.ghostVotes };
       S = freshState(keep.room, keep.hostToken); S.seats = keep.seats; S.script = keep.script; S.ghostVotes = keep.ghostVotes;
       for (const id of keep.seats) S.players[id] = newPlayer(id, keep.players[id].name);
       syncPresence(); tab = 'setup'; S.phase = 'setup'; save(); break;
     }
-    case 'endRoom': if (confirm('Close this room? The game will be lost.')) { store.del('nf_host'); store.del('nf_host_state'); location.reload(); } break;
+    case 'endRoom': if (confirm(t('Close this room? The game will be lost.'))) { store.del('nf_host'); store.del('nf_host_state'); location.reload(); } break;
   }
 });
 

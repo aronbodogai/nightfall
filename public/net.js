@@ -40,4 +40,10 @@ window.store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } },
   del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
-window.vibrate = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch { /* ignore */ } };
+// Browsers only allow vibration after the user has interacted with the page.
+window.vibrate = (p) => {
+  try {
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+    if (navigator.vibrate) navigator.vibrate(p);
+  } catch { /* ignore */ }
+};
