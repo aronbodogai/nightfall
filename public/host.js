@@ -133,6 +133,9 @@ function buildViews() {
   // Roles are only revealed to everyone once the game is over.
   const reveal = S.winner ? seatList().map(p => ({ name: p.name, role: role(p.role).name, icon: role(p.role).icon, team: role(p.role).team,
     thought: p.fakeRole ? role(p.fakeRole).name : null })) : null;
+  // The script (every character that might be in play) is public information for all players.
+  const scriptView = { name: S.script ? S.script.name : 'Nightfall', author: S.script ? S.script.author : '',
+    roles: ROLES.map(r => ({ id: r.id, name: r.name, team: r.team, icon: r.icon, ability: r.ability })) };
   for (const p of seatList()) {
     const r = p.role ? role(shownRole(p)) : null;
     const v = S.vote;
@@ -144,7 +147,7 @@ function buildViews() {
         role: r ? { id: r.id, name: r.name, team: r.team, icon: r.icon, ability: r.ability } : null,
         evil: p.role ? isEvil(p) : null,
         evilInfo: p.evilInfo,
-        canNominate: S.phase === 'day' && p.alive && !p.nominated && !S.vote,
+        canNominate: S.phase === 'day' && !!S.nomsOpen && p.alive && !p.nominated && !S.vote,
         canDuel: S.phase === 'day' && p.alive && shownRole(p) === 'duelist' && !p.duelUsed,
       },
       prompt: p.prompt,
@@ -154,6 +157,8 @@ function buildViews() {
       vote: v ? { nominator: pname(v.nominator), nominee: pname(v.nominee), nomineePid: v.nominee, open: v.open,
         myVote: v.votes[p.pid] ?? null, yes: tallyYes(v), hands: v.votes } : null,
       ghostVotes: S.ghostVotes !== false,
+      nomsOpen: !!S.nomsOpen,
+      script: scriptView,
       block: S.block ? { name: pname(S.block.pid), votes: S.block.votes } : null,
       nominatable: S.phase === 'day' ? seatList().filter(x => !x.wasNominated).map(x => x.pid) : [],
       pendingRequest: S.requests.some(q => q.pid === p.pid),
@@ -389,7 +394,7 @@ function startDay() {
   const died = S.dawn.deaths.slice();
   S.phase = 'day'; S.day += 1;
   for (const p of seatList()) { p.prompt = null; p.nominated = false; p.wasNominated = false; p.protected = false; }
-  S.nominations = []; S.vote = null; S.block = null; S.executedToday = null; S.debtorNight = false;
+  S.nominations = []; S.vote = null; S.block = null; S.executedToday = null; S.debtorNight = false; S.nomsOpen = false; S.highest = 0;
   S.requests = [];
   S.announce = died.length ? `Day ${S.day}. Died in the night: ${died.map(pname).join(', ')}.` : `Day ${S.day}. Nobody died in the night.`;
   msgAll(S.announce);
@@ -447,14 +452,21 @@ function closeVote() {
   S.vote = null;
   save();
 }
-function endDay() {
+// mode: 'kill' = execute and they die; 'survive' = executed but an ability keeps them alive; 'none' = no execution.
+function endDay(mode) {
   if (S.vote) return toast('Close the open vote first.');
-  if (S.block) {
+  S.nomsOpen = false;
+  if (S.block && mode !== 'none') {
     const p = S.players[S.block.pid];
     S.executedToday = p.pid; S.lastExecuted = p.pid;
-    msgAll(`${p.name} is executed.`);
-    if (p.role === 'debtor' && !p.cursed) { S.debtorNight = true; log('Debtor executed: the Demon may kill twice tonight.'); }
-    killPlayer(p.pid, 'executed');
+    if (mode === 'survive') {
+      msgAll(`${p.name} is executed… but does not die.`);
+      log(`${p.name} executed but survived (Storyteller ruling).`);
+    } else {
+      msgAll(`${p.name} is executed.`);
+      if (p.role === 'debtor' && !p.cursed) { S.debtorNight = true; log('Debtor executed: the Demon may kill twice tonight.'); }
+      killPlayer(p.pid, 'executed');
+    }
   } else {
     S.lastExecuted = null;
     msgAll('Nobody is executed today.');
@@ -480,6 +492,7 @@ function handleAct(pid, a) {
     save();
   } else if (a.kind === 'nominate') {
     if (S.phase !== 'day') return;
+    if (!S.nomsOpen) { msg(pid, 'Nominations are not open yet.'); return save(); }
     const prob = nominationProblem(pid, a.target);
     if (prob) { msg(pid, 'Nomination refused: ' + prob); return save(); }
     S.requests = S.requests.filter(r => r.pid !== pid || r.kind !== 'nominate');
@@ -735,6 +748,9 @@ function viewDay() {
     <div class="card"><div class="row"><div class="grow small">${esc(S.announce)}</div></div>
       <div class="small muted">${alivePlayers().length} alive · ${threshold()} votes to execute</div>
       ${S.block ? `<div class="banner evil" style="margin:8px 0 0">On the block: <b>${esc(pname(S.block.pid))}</b> (${S.block.votes})</div>` : ''}</div>
+    <div class="card"><div class="row"><div class="grow"><b>Nominations ${S.nomsOpen ? 'open' : 'closed'}</b>
+      <div class="small muted">${S.nomsOpen ? 'Players can nominate from their phones. You open each vote.' : 'Let the town talk first, then open nominations.'}</div></div>
+      <button class="${S.nomsOpen ? '' : 'good'}" data-a="toggleNoms" ${v ? 'disabled' : ''}>${S.nomsOpen ? 'Close' : 'Open'}</button></div></div>
     ${reqs ? `<div class="card"><h3>Requests</h3><div class="list">${reqs}</div></div>` : ''}
     ${votePanel}
     ${!v ? `<div class="card"><h3>Start a nomination</h3>
@@ -742,7 +758,7 @@ function viewDay() {
       <label>Nominee</label><select id="nomB">${seatList().filter(p => !p.wasNominated).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
       <button class="good block" style="margin-top:8px" data-a="manualNom">Open vote</button></div>` : ''}
     ${S.nominations.length ? `<div class="card"><h3>Today's votes</h3>${S.nominations.map(n => `<div class="small">${esc(pname(n.nominator))} → <b>${esc(pname(n.nominee))}</b>: ${n.votes} <span class="muted">(${esc(n.voters.join(', '))})</span></div>`).join('')}</div>` : ''}
-    <button class="primary block" data-a="endDay">${S.block ? `Execute ${esc(pname(S.block.pid))} & start night 🌙` : 'End day without execution 🌙'}</button>`;
+    <button class="primary block" data-a="openEndDay" ${v ? 'disabled' : ''}>Close all voting & end the day 🌙</button>`;
 }
 
 function viewLog() {
@@ -784,6 +800,25 @@ function renderSheet() {
       <label>Private message</label><textarea id="pmsg" placeholder="Only ${esc(p.name)} sees this"></textarea>
       <button class="good block" style="margin-top:6px" data-a="pmsg" data-pid="${p.pid}">Send</button>
       ${p.msgs.length ? `<h3 style="margin-top:12px">Sent to them</h3>${p.msgs.slice(-6).reverse().map(m => `<div class="msg small">${esc(m.text)}</div>`).join('')}` : ''}
+    </div></div>`;
+  } else if (sheet.type === 'endDay') {
+    const ranked = S.nominations.slice().sort((a, b) => b.votes - a.votes);
+    const b = S.block && S.players[S.block.pid];
+    const top = ranked[0];
+    const tie = !b && top && top.votes >= threshold();
+    $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
+      <div class="row"><h2 class="grow">End Day ${S.day}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
+      <h3>All votes today</h3>
+      ${ranked.length ? ranked.map(n => `<div class="row small" style="margin-bottom:6px"><div class="grow">${esc(pname(n.nominator))} → <b>${esc(pname(n.nominee))}</b>
+          <div class="muted">${n.voters.length ? '✋ ' + esc(n.voters.join(', ')) : 'no hands'}</div></div>
+          ${pill(S.block && S.block.pid === n.nominee ? 'evil' : '', n.votes + ' / ' + threshold())}</div>`).join('') : '<p class="muted small">No nominations today.</p>'}
+      <hr>
+      ${b ? `<p>Most votes: <b>${esc(b.name)}</b> with ${S.block.votes}. ${rolePill(b.role)}</p>
+          <p class="small muted">Check the characters in play: some abilities stop the execution or keep the player alive.</p>
+          <button class="danger block" data-a="endDay" data-mode="kill">💀 Execute ${esc(b.name)}: they die</button>
+          <div class="grid2" style="margin-top:8px"><button data-a="endDay" data-mode="survive">Executed, but survives</button><button data-a="endDay" data-mode="none">No execution</button></div>`
+        : `<p>${tie ? `Tie at ${top.votes}: nobody is executed.` : 'Nobody reached enough votes: nobody is executed.'}</p>
+          <button class="primary block" data-a="endDay" data-mode="none">End day without execution</button>`}
     </div></div>`;
   } else if (sheet.type === 'import') {
     const lib = store.get('nf_library', []);
@@ -950,7 +985,14 @@ document.addEventListener('click', (e) => {
     case 'hostVote': if (S.vote) { S.vote.votes[d.pid] = d.v === '1'; save(); } break;
     case 'cancelVote': if (S.vote) { S.players[S.vote.nominator].nominated = false; S.players[S.vote.nominee].wasNominated = false; S.vote = null; S.announce = 'Vote cancelled.'; save(); } break;
     case 'closeVote': closeVote(); break;
-    case 'endDay': if (confirm(S.block ? `Execute ${pname(S.block.pid)}?` : 'End the day with no execution?')) endDay(); break;
+    case 'openEndDay': if (S.vote) toast('Close the open vote first.'); else { sheet = { type: 'endDay' }; renderSheet(); } break;
+    case 'endDay': sheet = null; endDay(d.mode); break;
+    case 'toggleNoms': {
+      S.nomsOpen = !S.nomsOpen;
+      if (!S.nomsOpen) S.requests = S.requests.filter(r => r.kind !== 'nominate');
+      S.announce = S.nomsOpen ? 'Nominations are open.' : 'Nominations are closed.';
+      msgAll('📣 ' + S.announce); log(S.announce); save(); break;
+    }
     case 'forceNight': if (confirm('Skip to night?')) { S.vote = null; S.block = null; startNight(); } break;
     case 'forceDay': if (confirm('Skip to day (applies dawn deaths)?')) startDay(); break;
     case 'win': if (confirm(`Declare ${d.side} the winner?`)) { endGame(d.side, 'Storyteller decision.'); save(); } break;

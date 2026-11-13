@@ -6,7 +6,7 @@ const $sheet = document.getElementById('sheet');
 
 let me = store.get('nf_player'); // {room, token, pid, name}
 let V = null;                     // view from host
-let tab = 'role';
+let tab = 'town';
 let online = false, hostOnline = true;
 let joinError = '';
 let sheet = null;                 // {type:'nominate'|'duel'|'prompt', sel:[]}
@@ -85,7 +85,9 @@ function render() {
   document.getElementById('topright').innerHTML = V.me.alive ? '' : pill('dead', V.me.ghostVote ? '👻 ghost vote' : '👻 dead');
   const unread = Math.max(0, V.msgs.length - seenMsgs);
   if (tab === 'inbox') { seenMsgs = V.msgs.length; store.set('nf_seen', seenMsgs); }
-  const tabsDef = [['role', '🎭', 'Character'], ['town', '🏘️', 'Town'], ['inbox', '✉️', 'Messages']];
+  const tabsDef = [['town', '🏘️', 'Town'], ['role', '🎭', 'Me'], ['script', '📜', 'Script'], ['notes', '📝', 'Notes'], ['inbox', '✉️', 'Inbox']];
+  // Don't rebuild the notes page while the player is typing in it (it would drop focus).
+  const typing = tab === 'notes' && document.activeElement && document.activeElement.closest && document.activeElement.closest('#notes');
   $tabs.innerHTML = tabsDef.map(([k, ic, l]) => `<button class="${tab === k ? 'active' : ''}" data-a="tab" data-k="${k}"><span class="ic">${ic}</span>${l}${k === 'inbox' && unread && tab !== 'inbox' ? `<span class="badge">${unread}</span>` : ''}${k === 'town' && V.vote && V.vote.open && V.vote.myVote === null && tab !== 'town' ? '<span class="badge">!</span>' : ''}</button>`).join('');
 
   let top = '';
@@ -96,9 +98,71 @@ function render() {
   }
   else if (V.phase === 'night') top += `<div class="banner small">🌙 ${esc(V.announce)} ${V.prompt ? '<b>The Storyteller is asking you to choose.</b>' : 'Keep your eyes closed until woken.'}</div>`;
   if (V.prompt && !sheet) top += `<button class="primary block" style="margin-bottom:12px" data-a="openPrompt">Make your choice</button>`;
-  $app.innerHTML = top + ({ role: viewRole, town: viewTown, inbox: viewInbox }[tab])();
+  if (!typing) $app.innerHTML = top + ({ role: viewRole, town: viewTown, script: viewScript, notes: viewNotes, inbox: viewInbox }[tab] || viewTown)();
   renderSheet();
 }
+
+// ---------- seating ----------
+function seatingCircle() {
+  const n = V.seats.length;
+  const chips = V.seats.map((s, i) => {
+    const a = (-90 + (i * 360) / n) * Math.PI / 180; // seat 1 at the top, clockwise
+    const x = 50 + 40 * Math.cos(a), y = 50 + 40 * Math.sin(a);
+    const cls = [s.pid === V.me.pid ? 'me' : '', s.alive ? '' : 'dead'].join(' ');
+    return `<div class="chip ${cls}" style="left:${x}%;top:${y}%"><b>${s.alive ? s.seat : '💀'}</b><span>${esc(s.name)}</span></div>`;
+  }).join('');
+  return `<div class="circle">${chips}<div class="circle-mid small muted">clockwise ↻<br>${V.seats.filter(s => s.alive).length} alive</div></div>`;
+}
+function neighbours() {
+  const n = V.seats.length; const i = V.seats.findIndex(s => s.pid === V.me.pid);
+  if (i < 0 || n < 2) return '';
+  const prev = V.seats[(i - 1 + n) % n], next = V.seats[(i + 1) % n];
+  const livingFrom = (step) => { for (let k = 1; k < n; k++) { const s = V.seats[(i + step * k + n * k) % n]; if (s.alive && s.pid !== V.me.pid) return s; } return null; };
+  const lp = livingFrom(-1), ln = livingFrom(1);
+  const nm = (s) => s ? `<b>${esc(s.name)}</b>${s.alive ? '' : ' 💀'}` : '—';
+  return `<div class="card"><h3>Your neighbours</h3>
+    <div class="row"><div class="grow">◀ ${nm(prev)}</div><div>${nm(next)} ▶</div></div>
+    ${(lp && lp !== prev) || (ln && ln !== next) ? `<div class="small muted" style="margin-top:6px">Nearest living: ${nm(lp)} and ${nm(ln)}</div>` : ''}</div>`;
+}
+
+// ---------- script ----------
+function viewScript() {
+  const sc = V.script;
+  if (!sc || !sc.roles.length) return `<div class="card muted center">The Storyteller hasn't shared the character list yet.</div>`;
+  const mine = V.me.role && V.me.role.id;
+  const groups = ['townsfolk', 'outsider', 'minion', 'demon'].map(team => {
+    const list = sc.roles.filter(r => r.team === team);
+    if (!list.length) return '';
+    return `<div class="card"><h3>${TEAM_LABEL[team]}s</h3>${list.map(r => `
+      <div class="roleline ${r.id === mine && reveal ? 'mine' : ''}"><div class="ri">${r.icon}</div>
+        <div><b>${esc(r.name)}</b><div class="small muted">${esc(r.ability)}</div></div></div>`).join('')}</div>`;
+  }).join('');
+  return `<div class="card"><h2 style="margin:0">${esc(sc.name)}</h2>${sc.author ? `<div class="small muted">by ${esc(sc.author)}</div>` : ''}
+    <div class="small muted">Every character that might be in this game. Not all of them are in play.</div></div>${groups}`;
+}
+
+// ---------- notes (stored only on this phone) ----------
+const notesKey = () => `nf_notes:${me.room}:${me.pid}`;
+function viewNotes() {
+  const n = store.get(notesKey(), { text: '', players: {} });
+  const rows = V.seats.filter(s => s.pid !== V.me.pid).map(s => `
+    <div class="item ${s.alive ? '' : 'dead'}" style="gap:8px"><span class="seat">${s.alive ? s.seat : '💀'}</span>
+      <div class="main"><div class="name small">${esc(s.name)}</div>
+        <input data-note="${s.pid}" value="${esc(n.players[s.pid] || '')}" placeholder="claims… / suspect… / trust…" style="min-height:40px;padding:6px 10px"></div></div>`).join('');
+  return `<div id="notes">
+    <div class="card small muted">Only you can see these notes. They are saved on this phone.</div>
+    <div class="card"><h3>About each player</h3><div class="list">${rows}</div></div>
+    <div class="card"><h3>Notes</h3><textarea data-note="_text" style="min-height:200px" placeholder="What you learned, who claimed what, theories…">${esc(n.text)}</textarea></div>
+  </div>`;
+}
+document.addEventListener('input', (e) => {
+  const k = e.target.dataset && e.target.dataset.note;
+  if (!k || !me) return;
+  const n = store.get(notesKey(), { text: '', players: {} });
+  if (k === '_text') n.text = e.target.value; else n.players[k] = e.target.value;
+  store.set(notesKey(), n);
+});
+document.addEventListener('focusout', (e) => { if (e.target.dataset && e.target.dataset.note) setTimeout(render, 0); });
 
 function viewRole() {
   const r = V.me.role;
@@ -142,7 +206,9 @@ function viewTown() {
       <p class="center small muted">${!can ? 'You are watching this vote.' : v.myVote === null ? 'You have not voted yet.' : 'Your vote: ' + (v.myVote ? 'EXECUTE' : 'no') + ' (you can change it until the Storyteller closes the vote)'}</p>
       <div class="hands">${hands}</div></div>`;
   }
-  const nominate = V.me.canNominate ? `<button class="good block" style="margin-bottom:12px" data-a="openNominate" ${V.pendingRequest ? 'disabled' : ''}>${V.pendingRequest ? 'Request sent — waiting for Storyteller' : '👉 Nominate a player'}</button>` : '';
+  const nominate = V.me.canNominate
+    ? `<button class="good block" style="margin-bottom:12px" data-a="openNominate" ${V.pendingRequest ? 'disabled' : ''}>${V.pendingRequest ? 'Request sent — waiting for Storyteller' : '👉 Nominate a player'}</button>`
+    : (V.phase === 'day' && !V.vote ? `<div class="card small muted center">${V.nomsOpen ? (V.me.alive ? 'You have already nominated today.' : 'Dead players cannot nominate.') : 'Nominations are closed. The Storyteller will open them.'}</div>` : '');
   const seats = V.seats.map(s => `
     <div class="item ${s.alive ? '' : 'dead'}"><span class="seat">${s.alive ? s.seat : '💀'}</span>
       <div class="main"><span class="name">${esc(s.name)}</span>${s.pid === V.me.pid ? ' <span class="small muted">(you)</span>' : ''}
@@ -152,6 +218,8 @@ function viewTown() {
   return `${voteCard}
     ${V.phase === 'day' ? `<div class="card small">${esc(V.announce)}<div class="muted">${V.seats.filter(s => s.alive).length} alive · ${V.threshold} votes to execute</div></div>` : ''}
     ${nominate}
+    ${seatingCircle()}
+    ${neighbours()}
     <div class="card list" style="padding:4px">${seats}</div>
     ${V.nominations.length ? `<div class="card"><h3>Today's nominations</h3>${V.nominations.map(n => `<div class="small" style="margin-bottom:4px">${esc(n.nominator)} → <b>${esc(n.nominee)}</b>: ${n.votes} votes${n.voters && n.voters.length ? `<div class="muted">✋ ${n.voters.map(esc).join(', ')}</div>` : ''}</div>`).join('')}</div>` : ''}`;
 }
