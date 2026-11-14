@@ -119,15 +119,15 @@ export class Room extends DurableObject {
       if (!p) {
         const name = String(m.name || '').trim().slice(0, 24);
         if (!name) return this.send(ws, { t: 'error', code: 'no_name', msg: 'Enter a name.' });
-        if (await this.ctx.storage.get('locked')) return this.send(ws, { t: 'error', code: 'locked', msg: 'Game already started.' });
-        if (Object.keys(players).length >= 20) return this.send(ws, { t: 'error', code: 'full', msg: 'Room is full.' });
-        p = { pid: randomHex(4), name, token: randomHex(8) };
+        if (Object.keys(players).length >= 24) return this.send(ws, { t: 'error', code: 'full', msg: 'Room is full.' });
+        // Joining a game in progress is allowed: the Storyteller may seat them as a Traveller.
+        p = { pid: randomHex(4), name, token: randomHex(8), late: !!(await this.ctx.storage.get('locked')) };
         players[p.pid] = p;
         await this.ctx.storage.put('players', players);
       }
       for (const old of this.playerSockets(p.pid, ws)) { try { old.close(4000, 'replaced'); } catch { /* ignore */ } }
       ws.serializeAttachment({ role: 'player', pid: p.pid });
-      this.send(ws, { t: 'joined', pid: p.pid, token: p.token, room: meta.code, name: p.name });
+      this.send(ws, { t: 'joined', pid: p.pid, token: p.token, room: meta.code, name: p.name, late: !!p.late });
       this.send(ws, { t: 'host_status', online: this.hosts().length > 0 });
       const view = await this.ctx.storage.get('view:' + p.pid);
       if (view) this.send(ws, { t: 'view', view });

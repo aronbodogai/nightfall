@@ -1,15 +1,23 @@
-// Script import: reads the community script JSON format used by online script builders,
-// e.g. [{ "id": "_meta", "name": "My Script", "author": "me" }, "someid", { "id": "custom", "name": ..., "team": ..., "ability": ... }]
+// Script import. Accepts the official Script Tool format (see the botc-release script-schema.json) and
+// older community formats:
+//   [ { "id": "_meta", name, author, almanac, bootlegger[], firstNight[], otherNight[] },
+//     "officialid",                 // resolved from the character library the Storyteller imported
+//     { "id": "officialid" },       // deprecated object form
+//     { id, name, team, ability, firstNight, otherNight, ...Reminder, reminders, remindersGlobal, setup, jinxes } ]
 //
-// Characters given as full objects (homebrew / custom characters) are imported as-is.
-// Characters given only by id are resolved from (1) the character library the Storyteller imported
-// (a JSON list of character definitions in the same format) or (2) the built-in Nightfall set.
+// The app ships no official character data. The Storyteller imports their own:
+//   - a character library: a list of character objects (official roles.json or clocktower.online style),
+//   - optionally a night sheet: { firstNight: [ids & markers], otherNight: [...] },
+//   - optionally a jinx list: [ { id, jinx: [{ id, reason }] } ] (or clocktower.online "hatred").
 'use strict';
 
 window.ScriptImport = (() => {
   const CORE_TEAMS = ['townsfolk', 'outsider', 'minion', 'demon'];
+  const ALL_TEAMS = [...CORE_TEAMS, 'traveller', 'fabled', 'loric'];
+  const MARKERS = ['dusk', 'minioninfo', 'demoninfo', 'dawn'];
   const WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4 };
   const normId = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normTeam = (s) => { const x = String(s || '').toLowerCase(); return x === 'traveler' ? 'traveller' : x; };
 
   function guessChoose(ability) {
     const m = String(ability || '').match(/choose (a|an|one|two|three|four|\d+) (?:[a-z]+ ){0,2}players?/i);
@@ -18,71 +26,134 @@ window.ScriptImport = (() => {
     return WORDS[w] || Number(w) || 0;
   }
 
-  // Convert a community-format character definition into the app's role shape.
-  function toRole(d) {
-    if (d.first !== undefined || d.other !== undefined) return d; // already a Nightfall role
-    const team = String(d.team || '').toLowerCase();
-    const ability = String(d.ability || '');
-    const choose = guessChoose(ability);
-    const r = {
-      id: normId(d.id), name: String(d.name || d.id), team, ability,
-      icon: TEAM_ICON[team] || '❔', setup: !!d.setup, imported: true,
-    };
-    const fn = Number(d.firstNight) || 0, on = Number(d.otherNight) || 0;
-    if (fn > 0) r.first = { order: 10 + fn, choose, reminder: String(d.firstNightReminder || '') };
-    if (on > 0) {
-      r.other = { order: 10 + on, choose, reminder: String(d.otherNightReminder || '') };
-      if (team === 'demon' && /\bdies?\b/i.test(ability) && choose > 0) r.other.effect = 'kill';
+  // ---------- data file detection ----------
+  function asJson(x) {
+    if (typeof x !== 'string') return x;
+    try { return JSON.parse(x); } catch { throw new Error('That is not valid JSON.'); }
+  }
+  // Figures out what kind of data file this is: a character list, a night sheet, a jinx list, or a script.
+  function detect(json) {
+    const d = asJson(json);
+    if (d && !Array.isArray(d) && Array.isArray(d.firstNight) && Array.isArray(d.otherNight)) return { kind: 'nightsheet', data: d };
+    const list = Array.isArray(d) ? d : (d && typeof d === 'object' ? Object.values(d) : []);
+    if (list.length && list.every(x => x && typeof x === 'object' && x.id && (Array.isArray(x.jinx) || Array.isArray(x.hatred)))) return { kind: 'jinxes', data: list };
+    const meta = list.find(x => x && x.id === '_meta');
+    const roleObjs = list.filter(x => x && typeof x === 'object' && x.id && x.name && x.team);
+    if (!meta && roleObjs.length && roleObjs.length >= list.length * 0.8) return { kind: 'roles', data: roleObjs };
+    return { kind: 'script', data: list };
+  }
+  function parseLibrary(json) {
+    const r = detect(json);
+    if (r.kind === 'roles') return { kind: 'roles', data: r.data.map(x => Object.assign({}, x, { id: normId(x.id), team: normTeam(x.team) })) };
+    if (r.kind === 'nightsheet') return { kind: 'nightsheet', data: { firstNight: r.data.firstNight.map(normId), otherNight: r.data.otherNight.map(normId) } };
+    if (r.kind === 'jinxes') {
+      const map = {};
+      for (const x of r.data) map[normId(x.id)] = (x.jinx || x.hatred || []).map(j => ({ id: normId(j.id), reason: String(j.reason || '') }));
+      return { kind: 'jinxes', data: map };
     }
-    return r;
+    throw new Error('Not a character list, night sheet or jinx list.');
   }
 
-  function libraryMap(lib) {
-    const map = {};
-    const list = Array.isArray(lib) ? lib : (lib && typeof lib === 'object' ? Object.values(lib) : []);
-    for (const d of list) if (d && d.id && d.name) map[normId(d.id)] = d;
-    return map;
-  }
-
-  // Returns { name, author, roles, missing, skipped } or throws Error with a readable message.
-  function parse(json, library) {
-    let data = json;
-    if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch { throw new Error('That is not valid JSON.'); }
-    }
+  // ---------- script parsing ----------
+  // lib = { roles: [...], nightsheet: {firstNight, otherNight} | null, jinxes: {id: [{id, reason}]} }
+  function parse(json, lib) {
+    lib = lib || {};
+    let data = asJson(json);
     if (!Array.isArray(data)) data = data && (data.roles || data.characters || data.script);
     if (!Array.isArray(data)) throw new Error('Expected a script: a JSON list of characters.');
-    const lib = libraryMap(library);
-    const builtin = Object.fromEntries(BASE_ROLES.map(r => [r.id, r]));
-    const out = { name: 'Imported script', author: '', roles: [], missing: [], skipped: [] };
+    const libMap = {};
+    for (const d of lib.roles || []) if (d && d.id && d.name) libMap[normId(d.id)] = d;
+    const builtin = Object.fromEntries(BASE_ROLES.concat(window.BASE_EXTRAS || []).map(r => [r.id, r]));
+
+    const out = { name: 'Imported script', author: '', almanac: '', bootlegger: [], roles: [], travellers: [], fabled: [],
+      missing: [], warnings: [], jinxes: [], markers: { first: {}, other: {} } };
+    if (data.length > 201) out.warnings.push('More than 200 characters.');
+    const meta = data.find(x => x && typeof x === 'object' && x.id === '_meta') || {};
+    out.name = String(meta.name || out.name);
+    out.author = String(meta.author || '');
+    out.almanac = String(meta.almanac || '');
+    out.bootlegger = (Array.isArray(meta.bootlegger) ? meta.bootlegger : []).map(String);
+    const metaFirst = Array.isArray(meta.firstNight) ? meta.firstNight.map(normId) : null;
+    const metaOther = Array.isArray(meta.otherNight) ? meta.otherNight.map(normId) : null;
+    const ns = lib.nightsheet || null;
+
+    const defs = [];
     const seen = new Set();
     for (const el of data) {
-      const id = typeof el === 'string' ? el : el && el.id;
-      if (!id) continue;
-      if (id === '_meta') { out.name = el.name || out.name; out.author = el.author || ''; continue; }
-      const key = normId(id);
-      if (seen.has(key)) continue;
+      const rawId = typeof el === 'string' ? el : el && el.id;
+      if (!rawId || rawId === '_meta') continue;
+      const key = normId(rawId);
+      if (!key || seen.has(key)) continue;
       seen.add(key);
-      let def = (typeof el === 'object' && el.name && el.team && el.ability) ? el : (lib[key] || builtin[key]);
-      if (!def) { out.missing.push(id); continue; }
-      const role = toRole(def);
-      if (!CORE_TEAMS.includes(role.team)) { out.skipped.push(role.name); continue; }
-      out.roles.push(role);
+      const full = typeof el === 'object' && el.name && el.team && el.ability;
+      if (full && libMap[key]) out.warnings.push(`Custom character "${el.name}" reuses the id of a library character; the custom version is used.`);
+      const def = full ? el : (libMap[key] || builtin[key]);
+      if (!def) { out.missing.push(rawId); continue; }
+      defs.push(def);
     }
-    if (!out.roles.length) throw new Error('No usable characters found' + (out.missing.length ? ` (${out.missing.length} unknown ids — import a character library first)` : '') + '.');
+
+    // Night order: the script's own _meta order wins, then the imported night sheet, then the characters' numbers.
+    const orderOf = (id, num, first) => {
+      const arr = first ? metaFirst : metaOther;
+      if (arr) { const i = arr.indexOf(id); return i >= 0 ? (i + 1) * 10 : (num > 0 ? 5000 + num : null); }
+      const sheet = ns && (first ? ns.firstNight : ns.otherNight);
+      if (sheet) { const i = sheet.indexOf(id); if (i >= 0) return (i + 1) * 10; }
+      return num > 0 ? num * 10 : null;
+    };
+    const markerSrc = (first) => (first ? metaFirst : metaOther) || (ns && (first ? ns.firstNight : ns.otherNight)) || null;
+    for (const first of [true, false]) {
+      const arr = markerSrc(first);
+      if (!arr) continue;
+      for (const m of MARKERS) { const i = arr.indexOf(m); if (i >= 0) out.markers[first ? 'first' : 'other'][m] = (i + 1) * 10; }
+    }
+
+    for (const def of defs) {
+      const role = toRole(def, orderOf);
+      if (!ALL_TEAMS.includes(role.team)) { out.warnings.push(`Unknown team "${role.team}" for ${role.name}.`); continue; }
+      if (CORE_TEAMS.includes(role.team)) out.roles.push(role);
+      else if (role.team === 'traveller') out.travellers.push(role);
+      else out.fabled.push(role);
+    }
+
+    // Jinxes between characters on this script (from the characters themselves and the imported jinx list).
+    const ids = new Set([...out.roles, ...out.travellers, ...out.fabled].map(r => r.id));
+    const byId = Object.fromEntries([...out.roles, ...out.travellers, ...out.fabled].map(r => [r.id, r]));
+    const pairs = new Set();
+    const addJinx = (a, b, reason) => {
+      if (!ids.has(a) || !ids.has(b)) return;
+      const k = [a, b].sort().join('|');
+      if (pairs.has(k)) return;
+      pairs.add(k);
+      out.jinxes.push({ a, b, aName: byId[a].name, bName: byId[b].name, reason: String(reason || '') });
+    };
+    for (const def of defs) for (const j of def.jinxes || []) addJinx(normId(def.id), normId(j.id), j.reason);
+    for (const [a, list] of Object.entries(lib.jinxes || {})) for (const j of list) addJinx(a, j.id, j.reason);
+
+    if (!out.roles.length) throw new Error(out.missing.length ? 'No usable characters found. Import a character library first.' : 'No usable characters found.');
     return out;
   }
 
-  // Validates a character library: a JSON list (or id-keyed object) of full character definitions.
-  function parseLibrary(json) {
-    let data = json;
-    if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch { throw new Error('That is not valid JSON.'); }
+  // Convert a character definition into the app's role shape.
+  function toRole(d, orderOf) {
+    if (d.first !== undefined || d.other !== undefined || (d.team && !d.ability && d.icon)) return d; // built-in Nightfall role
+    const team = normTeam(d.team);
+    const ability = String(d.ability || '');
+    const id = normId(d.id);
+    const choose = guessChoose(ability);
+    const r = {
+      id, name: String(d.name || d.id), team, ability,
+      icon: TEAM_ICON[team] || '❔', setup: !!d.setup, imported: true,
+      reminders: Array.isArray(d.reminders) ? d.reminders.map(String) : [],
+      remindersGlobal: Array.isArray(d.remindersGlobal) ? d.remindersGlobal.map(String) : [],
+    };
+    const fo = orderOf(id, Number(d.firstNight) || 0, true);
+    const oo = orderOf(id, Number(d.otherNight) || 0, false);
+    if (fo != null) r.first = { order: fo, choose, reminder: String(d.firstNightReminder || '') };
+    if (oo != null) {
+      r.other = { order: oo, choose, reminder: String(d.otherNightReminder || '') };
+      if (team === 'demon' && /\bdies?\b/i.test(ability) && choose > 0) r.other.effect = 'kill';
     }
-    const map = libraryMap(data);
-    const list = Object.values(map);
-    if (!list.length) throw new Error('No character definitions found (each needs at least "id" and "name").');
-    return list;
+    return r;
   }
 
   async function fetchText(url) {
@@ -92,5 +163,5 @@ window.ScriptImport = (() => {
     return res.text();
   }
 
-  return { parse, parseLibrary, fetchText, normId, guessChoose };
+  return { parse, parseLibrary, detect, fetchText, normId, normTeam, guessChoose };
 })();

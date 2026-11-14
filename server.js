@@ -181,13 +181,13 @@ server.on('upgrade', (req, socket) => {
       if (!p) {
         const name = String(m.name || '').trim().slice(0, 24);
         if (!name) return conn.send({ t: 'error', code: 'no_name', msg: 'Enter a name.' });
-        if (r.state && r.state.locked) return conn.send({ t: 'error', code: 'locked', msg: 'Game already started.' });
-        p = { pid: id(4), name, token: id(), conn: null, view: null };
+        // Joining a game in progress is allowed: the Storyteller may seat them as a Traveller.
+        p = { pid: id(4), name, token: id(), conn: null, view: null, late: !!(r.state && r.state.locked) };
         r.players.set(p.pid, p);
       }
       if (p.conn && p.conn !== conn) p.conn.close();
       p.conn = conn; player = p;
-      conn.send({ t: 'joined', pid: p.pid, token: p.token, room: r.code, name: p.name });
+      conn.send({ t: 'joined', pid: p.pid, token: p.token, room: r.code, name: p.name, late: !!p.late });
       conn.send({ t: 'host_status', online: !!(r.host && r.host.alive) });
       if (p.view) conn.send({ t: 'view', view: p.view });
       return pushPresence(r);

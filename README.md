@@ -62,8 +62,26 @@ over Bluetooth, see `PLAN.md`.)
    phone (dead players spend their one ghost vote); close the vote; end the day to execute whoever is
    on the block. Win checks run automatically, and the end screen reveals every character.
 
-The Grimoire tab lets the Storyteller override anything (character, alive, ghost vote, curse,
-protection) and send private messages. Refreshing either page is safe: the host's state is saved on
+### Rules implemented (official ruleset)
+
+- Setup counts by player count; Travellers are outside the counts, and players beyond 15 must be Travellers.
+- Minion info and Demon info (3 bluffs) on the first night only, and only with 7+ players.
+- Nominations: Storyteller opens them; living players nominate once per day; each player can be
+  nominated once per day; dead players can be nominated.
+- Voting: at least half of the living players (rounded up) and more than any earlier nominee; a tie
+  clears the block and later nominees must beat the tied count; dead players have one ghost vote
+  (can be switched off as a house rule); at most one execution per day, and an execution that doesn't
+  kill still counts.
+- Travellers: chosen in the lobby or joining mid-game (the Storyteller seats them). Character public,
+  alignment secret; an evil Traveller learns the Demon. **Exile**: any player may call it, it needs
+  support from half of all players (dead included), spends no ghost votes, can happen any number of
+  times per day (each Traveller once) and never uses up the execution.
+- Win: good when the Demon dies; evil when only two non-Traveller players are alive.
+- Drunk/poisoned, alignment changes, "thinks they are…" and reminder tokens in the grimoire.
+- Fabled/Loric (shown to everyone when in play), bootlegger rules and jinxes from imported scripts.
+
+The Grimoire tab lets the Storyteller override anything (character, alignment, alive, ghost vote,
+drunk/poisoned, reminders) and send private messages. Refreshing either page is safe: the host's state is saved on
 its device, and players reconnect automatically.
 
 ## Languages
@@ -84,7 +102,24 @@ Institute's property). Add or change characters there: `first`/`other` set night
 players they choose, `effect` (`kill`, `protect`, `curse`) is applied automatically, `info` enables an
 answer helper.
 
-See `PLAN.md` for the rules implemented.
+### Importing scripts and your own character data
+
+**Characters → Import…** accepts scripts in the official Script Tool format: a JSON array with an
+optional `_meta` object (`name`, `author`, `almanac`, `bootlegger`, `firstNight`/`otherNight` order)
+and characters as plain ids, deprecated `{ "id": … }` objects, or full custom characters. Ids are
+normalised (lowercase, letters and digits only) and `traveler` is read as `traveller`.
+
+The app ships no official character data. Scripts that list only ids need a **character library**
+that you load yourself (from a file, URL or paste). It can hold three kinds of file, detected
+automatically:
+
+- a character list (`id`, `name`, `team`, `ability`, `firstNight`, `otherNight`, `…Reminder`,
+  `reminders`, `remindersGlobal`, `setup`, `jinxes`),
+- a night sheet (`{ "firstNight": [...], "otherNight": [...] }`, with `dusk`/`minioninfo`/`demoninfo`/`dawn`),
+- a jinx list (`[{ "id", "jinx": [{ "id", "reason" }] }]`, or the older `hatred` form).
+
+Night order: the script's `_meta` order first, then the night sheet, then each character's own numbers.
+When using The Pandemonium Institute's material, follow their Community Created Content Policy.
 
 ## License
 

@@ -69,13 +69,22 @@ window.ROLES = [
 ];
 
 window.BASE_ROLES = window.ROLES;
+// Built-in Travellers (original). They join any game and are never dealt from the bag.
+window.BASE_EXTRAS = [
+  { id: 'wanderer', name: 'Wanderer', team: 'traveller', icon: '🧭',
+    ability: 'Once per game, at night, choose a player: you learn their alignment.',
+    other: { order: 70, choose: 1 } },
+  { id: 'peddler', name: 'Peddler', team: 'traveller', icon: '🎒',
+    ability: 'Each night except the first, choose another player: they are safe from the Demon tonight. If the Demon chose them, you might die instead.',
+    other: { order: 21, choose: 1, notSelf: true, effect: 'protect' } },
+];
 window.ROLE = Object.fromEntries(window.ROLES.map(r => [r.id, r]));
 // Swap the active character list (e.g. after importing a script). Mutates in place so references stay valid.
 window.setRoles = (list) => {
   window.ROLES = list;
   window.ROLE = Object.fromEntries(list.map(r => [r.id, r]));
 };
-window.TEAM_ICON = { townsfolk: '🏠', outsider: '🌀', minion: '🗡️', demon: '😈' };
+window.TEAM_ICON = { townsfolk: '🏠', outsider: '🌀', minion: '🗡️', demon: '😈', traveller: '🧳', fabled: '📖', loric: '🜁' };
 window.TEAM_LABEL = { townsfolk: 'Townsfolk', outsider: 'Outsider', minion: 'Minion', demon: 'Demon' };
 window.isEvilTeam = (team) => team === 'minion' || team === 'demon';
 

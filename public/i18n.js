@@ -46,7 +46,7 @@ window.fmtVar = fmtVar;
 window.R = (r) => (r ? { $role: r.id, n: r.name, i: !!r.imported } : '');
 window.RA = (r) => (r ? { $ab: r.id, n: r.ability, i: !!r.imported } : '');
 
-const baseById = () => window._baseById || (window._baseById = Object.fromEntries(BASE_ROLES.map(r => [r.id, r])));
+const baseById = () => window._baseById || (window._baseById = Object.fromEntries(BASE_ROLES.concat(window.BASE_EXTRAS || []).map(r => [r.id, r])));
 function builtinText(id, field, fallback, imported) {
   if (imported) return fallback;
   const b = baseById()[id];
@@ -60,12 +60,16 @@ window.roleAbility = (id, fallback, imported) => builtinText(id, 'ability', fall
 // Localize a role object received from the host ({ id, name, ability, imported }).
 window.locRole = (r) => (r ? Object.assign({}, r, { name: roleName(r.id, r.name, r.imported), ability: roleAbility(r.id, r.ability, r.imported) }) : r);
 
-const TEAMS = { townsfolk: ['Townsfolk', 'Townsfolk'], outsider: ['Outsider', 'Outsiders'], minion: ['Minion', 'Minions'], demon: ['Demon', 'Demons'] };
-window.teamLabel = (team, plural) => { const e = TEAMS[team]; return e ? t(e[plural ? 1 : 0] + (plural ? ' (plural)' : '')) : team; };
+const TEAMS = { townsfolk: ['Townsfolk', 'Townsfolk'], outsider: ['Outsider', 'Outsiders'], minion: ['Minion', 'Minions'], demon: ['Demon', 'Demons'], traveller: ['Traveller', 'Travellers'], fabled: ['Fabled', 'Fabled'], loric: ['Loric', 'Loric'] };
+// Plural keys carry a " (plural)" marker so they can differ from the singular in other languages.
+window.teamLabel = (team, plural) => {
+  const e = TEAMS[team]; if (!e) return team;
+  return plural ? t(e[1] + ' (plural)').replace(/ \(plural\)$/, '') : t(e[0]);
+};
 
 // Rewrite the built-in characters' visible text in place for the current language.
 window.applyRoleLang = () => {
-  for (const r of BASE_ROLES) {
+  for (const r of BASE_ROLES.concat(window.BASE_EXTRAS || [])) {
     if (!r._en) r._en = { name: r.name, ability: r.ability };
     const tr = ROLE_I18N[LANG] && ROLE_I18N[LANG][r.id];
     r.name = (tr && tr.name) || r._en.name;

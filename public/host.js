@@ -25,11 +25,25 @@ function freshState(room, hostToken) {
     seats: [], players: {}, selection: [], bluffs: [], steps: [], stepIdx: 0,
     nominations: [], vote: null, block: null, requests: [], executedToday: null, lastExecuted: null,
     debtorNight: false, dawn: null, winner: null, log: [], announce: '', promptSeq: 1,
-    script: null,       // imported script { name, author, roles, missing, skipped } or null = built-in set
+    script: null,       // imported script (see script.js) or null = built-in set
     ghostVotes: true,   // official rule: each dead player keeps one vote for the rest of the game
+    travellerPids: [],  // players who play a Traveller (chosen in the lobby, or late joiners)
+    pending: [],        // late joiners waiting to be seated as Travellers
+    fabledOn: [],       // ids of Fabled/Loric in play (public)
+    exiledToday: [],    // Travellers already called for exile today
   };
 }
-function applyScript() { setRoles(S && S.script ? S.script.roles : BASE_ROLES); }
+// Travellers are selectable alongside the script's characters but never dealt from the bag.
+function scriptTravellers() { return S && S.script ? S.script.travellers : (window.BASE_EXTRAS || []).filter(r => r.team === 'traveller'); }
+function scriptFabled() { return S && S.script ? S.script.fabled : []; }
+function applyScript() {
+  setRoles([...(S && S.script ? S.script.roles : BASE_ROLES), ...scriptTravellers(), ...scriptFabled()]);
+}
+function migrate() {
+  for (const k of ['travellerPids', 'pending', 'fabledOn', 'exiledToday']) if (!Array.isArray(S[k])) S[k] = [];
+  if (S.ghostVotes === undefined) S.ghostVotes = true;
+  if (S.script && !S.script.travellers) Object.assign(S.script, { travellers: [], fabled: [], jinxes: [], bootlegger: [], markers: { first: {}, other: {} } });
+}
 
 // ---------- networking ----------
 const net = Net(onMsg, (on) => { online = on; document.getElementById('netdot').className = 'dot' + (on ? ' on' : ''); });
@@ -64,7 +78,7 @@ function onMsg(m) {
   if (m.t === 'resumed') {
     const local = store.get('nf_host_state');
     S = (local && local.room === m.room) ? local : freshState(m.room, store.get('nf_host').hostToken);
-    if (S.ghostVotes === undefined) S.ghostVotes = true;
+    migrate();
     applyScript();
     presence = m.players || [];
     syncPresence();
@@ -88,7 +102,9 @@ function syncPresence() {
   for (const p of presence) {
     if (!S.players[p.pid]) {
       S.players[p.pid] = newPlayer(p.pid, p.name);
+      // Before the game: seat them. During the game: they wait to be seated as a Traveller.
       if (!S.locked) S.seats.push(p.pid);
+      else if (!S.pending.includes(p.pid)) { S.pending.push(p.pid); toast(t('{name} wants to join as a Traveller.', { name: p.name })); }
     }
     S.players[p.pid].name = p.name;
     S.players[p.pid].connected = p.connected;
@@ -96,13 +112,19 @@ function syncPresence() {
   if (!S.locked) {
     const ids = new Set(presence.map(p => p.pid));
     S.seats = S.seats.filter(id => ids.has(id));
+    S.travellerPids = S.travellerPids.filter(id => ids.has(id));
     for (const id of Object.keys(S.players)) if (!ids.has(id)) delete S.players[id];
+  } else {
+    const ids = new Set(presence.map(p => p.pid));
+    S.pending = S.pending.filter(id => ids.has(id));
   }
 }
 function newPlayer(pid, name) {
   return { pid, name, connected: true, role: null, fakeRole: null, alive: true, ghostVote: true,
     cursed: false, protected: false, sentinelUsed: false, luckyUsed: false, duelUsed: false, hollowUsed: false,
-    nominated: false, wasNominated: false, msgs: [], prompt: null, evilInfo: null };
+    nominated: false, wasNominated: false, msgs: [], prompt: null, evilInfo: null,
+    alignment: null,   // null = from character type; 'good' | 'evil' set by the Storyteller (Travellers, alignment changes)
+    drunk: false, poisoned: false, reminders: [], exiled: false };
 }
 
 // ---------- persistence + views ----------
@@ -118,35 +140,52 @@ function seatList() { return S.seats.map(id => S.players[id]).filter(Boolean); }
 function alivePlayers() { return seatList().filter(p => p.alive); }
 const threshold = () => Math.ceil(alivePlayers().length / 2);
 const pname = (pid) => (S.players[pid] ? S.players[pid].name : '?');
-const isEvil = (p) => p && p.role && isEvilTeam(role(p.role).team);
+const isTraveller = (p) => !!p && (S.travellerPids.includes(p.pid) || (p.role && role(p.role).team === 'traveller'));
+// Alignment: a Storyteller override (Travellers, alignment changes) wins over the character type.
+const isEvil = (p) => !!p && (p.alignment ? p.alignment === 'evil' : !!p.role && isEvilTeam(role(p.role).team));
 const shownRole = (p) => p.fakeRole || p.role;
-// Sleepwalker, or anyone the Storyteller has set to "thinks they are" another character (Drunk-style roles).
-const malfunctioning = (p) => p.cursed || p.role === 'sleepwalker' || (!!p.fakeRole && p.fakeRole !== p.role);
+// Drunk or poisoned (incl. Hexer's curse), the Sleepwalker, or anyone set to "thinks they are" another character.
+const malfunctioning = (p) => p.cursed || p.drunk || p.poisoned || p.role === 'sleepwalker' || (!!p.fakeRole && p.fakeRole !== p.role);
 // Living players always vote; dead players only while they still hold their ghost vote (if that rule is on).
+// Exile is not a vote: every player, alive or dead, may support it without spending anything.
 const canVote = (p) => !!p && (p.alive || (S.ghostVotes !== false && p.ghostVote));
+const canVoteOn = (p, v) => !!p && (v && v.kind === 'exile' ? true : canVote(p));
 function tallyYes(v) {
   let n = 0;
-  for (const [pid, yes] of Object.entries(v.votes)) { const p = S.players[pid]; if (yes && canVote(p)) n += voteWeight(p); }
+  for (const [pid, yes] of Object.entries(v.votes)) { const p = S.players[pid]; if (yes && canVoteOn(p, v)) n += v.kind === 'exile' ? 1 : voteWeight(p); }
   return n;
 }
+// Exile needs at least half of all players (alive and dead); execution needs at least half of the living.
+const exileThreshold = () => Math.ceil(seatList().length / 2);
+const voteNeed = (v) => (v && v.kind === 'exile' ? exileThreshold() : threshold());
 const roleOut = (r) => (r ? { id: r.id, name: r.name, team: r.team, icon: r.icon, ability: r.ability, imported: !!r.imported } : null);
 
 function buildViews() {
   const views = {};
-  const seats = seatList().map((p, i) => ({ pid: p.pid, name: p.name, seat: i + 1, alive: p.alive, ghostVote: p.ghostVote, canVote: canVote(p) }));
+  // A Traveller's character is public (announced when they join); their alignment is not.
+  const seats = seatList().map((p, i) => ({ pid: p.pid, name: p.name, seat: i + 1, alive: p.alive, ghostVote: p.ghostVote, canVote: canVote(p),
+    traveller: isTraveller(p) && p.role ? roleOut(role(p.role)) : (isTraveller(p) ? {} : null), exiled: !!p.exiled }));
   // Roles are only revealed to everyone once the game is over.
   const reveal = S.winner ? seatList().map(p => ({ name: p.name, role: roleRef(p.role), icon: role(p.role).icon, team: role(p.role).team,
-    thought: p.fakeRole ? roleRef(p.fakeRole) : null })) : null;
-  // The script (every character that might be in play) is public information for all players.
-  const scriptView = { name: S.script ? S.script.name : 'Nightfall', author: S.script ? S.script.author : '', roles: ROLES.map(roleOut) };
+    evil: isEvil(p), thought: p.fakeRole ? roleRef(p.fakeRole) : null })) : null;
+  // The script (every character that might be in play), its rules and jinxes are public information.
+  const sc = S.script;
+  const scriptView = {
+    name: sc ? sc.name : 'Nightfall', author: sc ? sc.author : '', almanac: sc ? sc.almanac : '',
+    roles: ROLES.filter(r => ['townsfolk', 'outsider', 'minion', 'demon'].includes(r.team)).map(roleOut),
+    travellers: scriptTravellers().map(roleOut),
+    fabled: scriptFabled().filter(r => S.fabledOn.includes(r.id)).map(roleOut),
+    bootlegger: sc ? sc.bootlegger : [],
+    jinxes: sc ? sc.jinxes : [],
+  };
   for (const p of seatList()) {
     const r = p.role ? role(shownRole(p)) : null;
     const v = S.vote;
     views[p.pid] = {
       room: S.room, phase: S.phase, day: S.day, night: S.night, winner: S.winner, announce: S.announce, reveal,
-      seats, threshold: threshold(),
+      seats, threshold: threshold(), exileThreshold: exileThreshold(),
       me: {
-        pid: p.pid, name: p.name, alive: p.alive, ghostVote: p.ghostVote, canVote: canVote(p),
+        pid: p.pid, name: p.name, alive: p.alive, ghostVote: p.ghostVote, canVote: canVoteOn(p, S.vote), traveller: isTraveller(p),
         role: roleOut(r),
         evil: p.role ? isEvil(p) : null,
         evilInfo: p.evilInfo,
@@ -157,8 +196,9 @@ function buildViews() {
       msgs: p.msgs.slice(-40),
       nominations: S.nominations.map(n => ({ nominator: pname(n.nominator), nominee: pname(n.nominee), nomineePid: n.nominee, votes: n.votes, voters: n.voters })),
       // Voting is public at the table (hands are raised), so every phone sees the live hands.
-      vote: v ? { nominator: pname(v.nominator), nominee: pname(v.nominee), nomineePid: v.nominee, open: v.open,
-        myVote: v.votes[p.pid] ?? null, yes: tallyYes(v), hands: v.votes } : null,
+      vote: v ? { kind: v.kind || 'execute', nominator: v.nominator ? pname(v.nominator) : '', nominee: pname(v.nominee), nomineePid: v.nominee, open: v.open,
+        myVote: v.votes[p.pid] ?? null, yes: tallyYes(v), need: voteNeed(v), hands: v.votes,
+        eligible: Object.fromEntries(seatList().map(x => [x.pid, canVoteOn(x, v)])) } : null,
       ghostVotes: S.ghostVotes !== false,
       nomsOpen: !!S.nomsOpen,
       script: scriptView,
@@ -179,7 +219,9 @@ function msgAll(m) { for (const p of seatList()) msg(p.pid, m); }
 function log(text) { S.log.push({ text: tx(text), ts: now(), phase: S.phase === 'night' ? `N${S.night}` : `D${S.day}` }); }
 
 // ---------- setup ----------
-function recommended() { return setupFor(S.seats.length); }
+// Travellers are outside the setup counts.
+const bagPlayers = () => seatList().filter(p => !S.travellerPids.includes(p.pid));
+function recommended() { return setupFor(bagPlayers().length); }
 function countSel(team) { return S.selection.filter(id => role(id).team === team).length; }
 function randomSelection() {
   const [nt, no, nm, nd] = recommended();
@@ -187,10 +229,18 @@ function randomSelection() {
   S.selection = [...byTeam('townsfolk').slice(0, nt), ...byTeam('outsider').slice(0, no), ...byTeam('minion').slice(0, nm), ...byTeam('demon').slice(0, nd)];
 }
 function deal() {
-  const ps = seatList();
+  const ps = bagPlayers();
   if (S.selection.length !== ps.length) return toast(t('Select exactly {n} characters (now {m}).', { n: ps.length, m: S.selection.length }));
   const roles = shuffle(S.selection);
   ps.forEach((p, i) => { Object.assign(p, newPlayer(p.pid, p.name), { connected: p.connected, role: roles[i] }); });
+  // Travellers keep the character the Storyteller picked for them (default: the first one on the script), good by default.
+  const tr = scriptTravellers();
+  for (const pid of S.travellerPids) {
+    const p = S.players[pid]; if (!p) continue;
+    const keep = p.role && role(p.role).team === 'traveller' ? p.role : (tr[0] && tr[0].id);
+    const align = p.alignment || 'good';
+    Object.assign(p, newPlayer(p.pid, p.name), { connected: p.connected, role: keep || null, alignment: align });
+  }
   const notInPlay = ROLES.filter(r => r.team === 'townsfolk' && !S.selection.includes(r.id)).map(r => r.id);
   const sleeper = ps.find(p => p.role === 'sleepwalker');
   if (sleeper) sleeper.fakeRole = pick(notInPlay) || 'archivist';
@@ -200,10 +250,40 @@ function deal() {
   S.dealt = true;
   save();
 }
+// A Traveller's character is announced to everyone; an evil Traveller privately learns who the Demon is.
+function announceTravellers(list) {
+  for (const p of list) {
+    if (!p.role) continue;
+    msgAll(L('{name} is the {role} (Traveller).', { name: p.name, role: roleRef(p.role) }));
+    log(L('{name} is the {role} (Traveller, {align}).', { name: p.name, role: roleRef(p.role), align: L(isEvil(p) ? 'evil' : 'good') }));
+    const r = role(p.role);
+    msg(p.pid, L('You are the {role}. {ability}', { role: R(r), ability: RA(r) }));
+    msg(p.pid, L(isEvil(p) ? 'Your alignment: evil.' : 'Your alignment: good.'));
+    if (isEvil(p)) {
+      const demons = seatList().filter(x => x.role && role(x.role).team === 'demon').map(x => x.name);
+      if (demons.length) { msg(p.pid, L('Evil team: the Demon is {demon}.', { demon: demons })); p.evilInfo = { demon: demons }; }
+    }
+  }
+}
+// Seat a late joiner as a Traveller, right after the given player.
+function seatTraveller(pid, roleId, alignment, afterPid) {
+  const p = S.players[pid]; if (!p || !roleId) return;
+  S.pending = S.pending.filter(x => x !== pid);
+  if (!S.travellerPids.includes(pid)) S.travellerPids.push(pid);
+  Object.assign(p, newPlayer(p.pid, p.name), { connected: p.connected, role: roleId, alignment, msgs: p.msgs });
+  const i = S.seats.indexOf(afterPid);
+  S.seats = S.seats.filter(x => x !== pid);
+  if (i >= 0) S.seats.splice(S.seats.indexOf(afterPid) + 1, 0, pid); else S.seats.push(pid);
+  announceTravellers([p]);
+  save();
+}
 function startGame() {
   if (!S.dealt) return toast(t('Deal characters first.'));
+  if (seatList().some(p => isTraveller(p) && !p.role)) return toast(t('Pick a Traveller character for every Traveller.'));
   S.locked = true;
+  announceTravellers(seatList().filter(isTraveller));
   for (const p of seatList()) {
+    if (isTraveller(p)) continue; // already told by announceTravellers()
     const r = role(shownRole(p));
     msg(p.pid, L('You are the {role}. {ability}', { role: R(r), ability: RA(r) }));
   }
@@ -218,9 +298,12 @@ function startNight() {
   const first = S.night === 1;
   const steps = [];
   const ps = seatList();
-  if (first && ps.length >= 7) {
-    steps.push({ key: 'minion_info', kind: 'minion_info', order: -2 });
-    steps.push({ key: 'demon_info', kind: 'demon_info', order: -1 });
+  // Minion and Demon info: first night only, and only with 7+ players (Travellers not counted).
+  // Their position comes from the script's / night sheet's markers when present.
+  const mk = (S.script && S.script.markers && S.script.markers.first) || {};
+  if (first && bagPlayers().length >= 7) {
+    steps.push({ key: 'minion_info', kind: 'minion_info', order: mk.minioninfo != null ? mk.minioninfo : -2 });
+    steps.push({ key: 'demon_info', kind: 'demon_info', order: mk.demoninfo != null ? mk.demoninfo : -1 });
   }
   for (const p of ps) {
     if (!p.alive) continue;
@@ -382,7 +465,8 @@ function checkWin() {
   if (S.winner) return;
   const demonAlive = seatList().some(p => p.alive && role(p.role).team === 'demon');
   if (!demonAlive) return endGame('good', L('The Demon is dead.'));
-  if (alivePlayers().length <= 2) return endGame('evil', L('Only two players remain.'));
+  // Travellers (and Fabled) don't count towards "two players alive".
+  if (alivePlayers().filter(p => !isTraveller(p)).length <= 2) return endGame('evil', L('Only two players remain.'));
 }
 function endGame(side, why) {
   S.winner = side; S.phase = 'over';
@@ -402,7 +486,7 @@ function startDay() {
   S.phase = 'day'; S.day += 1;
   for (const p of seatList()) { p.prompt = null; p.nominated = false; p.wasNominated = false; p.protected = false; }
   S.nominations = []; S.vote = null; S.block = null; S.executedToday = null; S.debtorNight = false; S.nomsOpen = false; S.highest = 0;
-  S.requests = [];
+  S.requests = []; S.exiledToday = [];
   S.announce = died.length ? L('Day {n}. Died in the night: {names}.', { n: S.day, names: died.map(pname) }) : L('Day {n}. Nobody died in the night.', { n: S.day });
   msgAll(S.announce);
   log(S.announce);
@@ -437,9 +521,51 @@ function openVote(nominator, nominee) {
   S.announce = L('{a} nominated {b}. Vote now! ({n} needed)', { a: a.name, b: b.name, n: threshold() });
   save();
 }
-function voteWeight(p) { return p.role === 'magistrate' && !p.cursed && p.alive ? 2 : 1; }
+// ---- exile (Travellers only) ----
+// Any player, alive or dead, may call for a Traveller's exile. It is not a vote: nobody spends a ghost vote,
+// abilities don't affect it, and it never counts as the day's execution. Each Traveller once per day.
+function exileProblem(target) {
+  const tg = S.players[target];
+  if (!tg || !isTraveller(tg)) return L('Only Travellers can be exiled.');
+  if (!tg.alive) return L('{name} is already dead.', { name: tg.name });
+  if (S.exiledToday.includes(target)) return L('{name} was already called for exile today.', { name: tg.name });
+  if (S.vote) return L('A vote is already in progress.');
+  return '';
+}
+function openExile(caller, target) {
+  const prob = exileProblem(target);
+  if (prob) return toast(tx(prob));
+  S.exiledToday.push(target);
+  S.requests = S.requests.filter(r => !(r.kind === 'exile' && r.target === target));
+  S.vote = { kind: 'exile', nominator: caller || null, nominee: target, votes: {}, open: true };
+  S.announce = caller
+    ? L('{a} calls for the exile of {b}. Raise your hand to support! ({n} needed)', { a: pname(caller), b: pname(target), n: exileThreshold() })
+    : L('Exile of {b}: raise your hand to support! ({n} needed)', { b: pname(target), n: exileThreshold() });
+  log(S.announce);
+  save();
+}
+function closeExile() {
+  const v = S.vote;
+  const voters = Object.entries(v.votes).filter(([, y]) => y).map(([pid]) => pname(pid));
+  const n = voters.length, need = exileThreshold();
+  const tg = S.players[v.nominee];
+  S.vote = null;
+  if (n >= need) {
+    S.announce = L('{name} is exiled ({n} of {need}).', { name: tg.name, n, need });
+    tg.exiled = true;
+    msgAll(S.announce); log(S.announce);
+    killPlayer(tg.pid, 'exiled');
+  } else {
+    S.announce = L('Not enough support to exile {name} ({n} of {need}).', { name: tg.name, n, need });
+    msgAll(S.announce); log(S.announce);
+  }
+  save();
+}
+
+function voteWeight(p) { return p.role === 'magistrate' && !p.cursed && !p.drunk && !p.poisoned && p.alive ? 2 : 1; }
 function closeVote() {
   const v = S.vote; if (!v) return;
+  if (v.kind === 'exile') return closeExile();
   let count = 0; const voters = [];
   for (const [pid, yes] of Object.entries(v.votes)) {
     const p = S.players[pid]; if (!yes || !canVote(p)) continue;
@@ -508,8 +634,15 @@ function handleAct(pid, a) {
     save();
   } else if (a.kind === 'vote') {
     if (!S.vote || !S.vote.open) return;
-    if (!canVote(p)) return; // dead without a ghost vote: ignored
+    if (!canVoteOn(p, S.vote)) return; // dead without a ghost vote: ignored
     S.vote.votes[pid] = !!a.yes;
+    save();
+  } else if (a.kind === 'exile') {
+    if (S.phase !== 'day') return;
+    const prob = exileProblem(a.target);
+    if (prob) { msg(pid, [L('Exile refused: '), prob]); return save(); }
+    if (!S.requests.some(r => r.kind === 'exile' && r.target === a.target)) S.requests.push({ kind: 'exile', pid, target: a.target, ts: now() });
+    toast(t('{a} calls for the exile of {b}', { a: p.name, b: pname(a.target) }));
     save();
   } else if (a.kind === 'duel') {
     if (S.phase !== 'day' || p.duelUsed) return;
@@ -603,10 +736,12 @@ function viewLobby() {
     </div>
     <div class="card">
       <div class="row"><h2 class="grow">${t('Players ({n})', { n: ps.length })}</h2></div>
-      <p class="small muted">${t('Order = seating order clockwise around the circle.')} ${ps.length < 5 ? t('5–15 players recommended.') : t('Setup: {t} Townsfolk, {o} Outsider, {m} Minion, {d} Demon.', { t: nt, o: no, m: nm, d: nd })}</p>
+      <p class="small muted">${t('Order = seating order clockwise around the circle.')} ${bagPlayers().length < 5 ? t('5–15 players recommended.') : t('Setup: {t} Townsfolk, {o} Outsider, {m} Minion, {d} Demon.', { t: nt, o: no, m: nm, d: nd })}
+        ${bagPlayers().length > 15 ? `<br><b style="color:var(--warn)">${t('More than 15 players: everyone beyond 15 must play a Traveller (tap 🧳).')}</b>` : ''}</p>
       <div class="list">${ps.map((p, i) => `
         <div class="item"><span class="seat">${i + 1}</span>
-          <div class="main"><div class="name">${esc(p.name)}</div><div class="small ${p.connected ? 'muted' : ''}">${p.connected ? t('connected') : t('⚠ offline')}</div></div>
+          <div class="main"><div class="name">${esc(p.name)} ${S.travellerPids.includes(p.pid) ? pill('warn', t('🧳 Traveller')) : ''}</div><div class="small ${p.connected ? 'muted' : ''}">${p.connected ? t('connected') : t('⚠ offline')}</div></div>
+          <button class="sm ${S.travellerPids.includes(p.pid) ? 'primary' : ''}" data-a="toggleTraveller" data-pid="${p.pid}" title="${esc(t('Traveller'))}">🧳</button>
           <button class="sm" data-a="seatUp" data-pid="${p.pid}" ${i === 0 ? 'disabled' : ''}>▲</button>
           <button class="sm" data-a="seatDown" data-pid="${p.pid}" ${i === ps.length - 1 ? 'disabled' : ''}>▼</button>
           <button class="sm danger" data-a="kick" data-pid="${p.pid}">✕</button>
@@ -616,7 +751,7 @@ function viewLobby() {
 }
 
 function viewSetup() {
-  const ps = seatList();
+  const ps = bagPlayers();
   const [nt, no, nm, nd] = recommended();
   const target = { townsfolk: nt, outsider: no, minion: nm, demon: nd };
   const groups = ['townsfolk', 'outsider', 'minion', 'demon'].map(team => {
@@ -630,17 +765,20 @@ function viewSetup() {
   const sc = S.script;
   const scriptCard = `<div class="card"><div class="row"><div class="grow"><h3 style="margin:0">${t('Script')}</h3>
       <b>${esc(sc ? sc.name : t('Nightfall (built-in)'))}</b>${sc && sc.author ? ` <span class="small muted">${t('by {author}', { author: esc(sc.author) })}</span>` : ''}
-      <div class="small muted">${t('{n} characters', { n: ROLES.length })}${sc && sc.missing.length ? ' · ' + t('⚠ {n} unknown', { n: sc.missing.length }) : ''}${sc && sc.skipped.length ? ' · ' + t('{n} travellers/fabled skipped', { n: sc.skipped.length }) : ''}</div></div>
+      <div class="small muted">${t('{n} characters', { n: ROLES.filter(r => target[r.team] !== undefined).length })}${scriptTravellers().length ? ' · ' + t('{n} Travellers', { n: scriptTravellers().length }) : ''}${scriptFabled().length ? ' · ' + t('{n} Fabled/Loric', { n: scriptFabled().length }) : ''}${sc && sc.missing.length ? ' · ' + t('⚠ {n} unknown', { n: sc.missing.length }) : ''}</div></div>
       <button class="sm" data-a="openImport" ${S.locked ? 'disabled' : ''}>${t('Import…')}</button></div>
       ${sc && sc.missing.length ? `<p class="small" style="color:var(--warn);margin:6px 0 0">${t('Unknown: {ids}. Import a character library that defines them, then import the script again.', { ids: esc(sc.missing.join(', ')) })}</p>` : ''}
+      ${sc && sc.warnings && sc.warnings.length ? `<p class="small muted" style="margin:6px 0 0">⚠ ${sc.warnings.map(esc).join('<br>⚠ ')}</p>` : ''}
       ${ROLES.some(r => r.setup) ? `<p class="small muted" style="margin:6px 0 0"><span class="pill warn">${t('setup')}</span> ${t('characters change the Townsfolk/Outsider counts: adjust your selection by hand.')}</p>` : ''}
-    </div>`;
+      ${sc && sc.almanac ? `<p class="small" style="margin:6px 0 0"><a href="${esc(sc.almanac)}" target="_blank" rel="noopener" style="color:var(--accent)">${t('Almanac ↗')}</a></p>` : ''}
+    </div>
+    ${rulesCard(true)}`;
   const dealt = S.dealt ? `
     <div class="card"><h2>${t('Dealt characters')}</h2>
       <p class="small muted">${t('Players can already see their character. Swap here if needed, then start.')}</p>
-      <div class="list">${ps.map((p, i) => `
+      <div class="list">${seatList().map((p, i) => `
         <div class="item"><span class="seat">${i + 1}</span><div class="main"><div class="name">${esc(p.name)}</div>
-          <div>${rolePill(p.role)} ${p.fakeRole ? `<span class="small muted">${t('thinks')}</span> ` + rolePill(p.fakeRole) : ''}</div></div>
+          <div>${rolePill(p.role)} ${isTraveller(p) ? pill(isEvil(p) ? 'evil' : 'good', isEvil(p) ? t('evil') : t('good')) : ''} ${p.fakeRole ? `<span class="small muted">${t('thinks')}</span> ` + rolePill(p.fakeRole) : ''}</div></div>
           <button class="sm" data-a="sheetPlayer" data-pid="${p.pid}">${t('Edit')}</button></div>`).join('')}</div>
       <p class="small">${t('Demon bluffs:')} ${S.bluffs.map(rolePill).join(' ')}</p>
     </div>
@@ -653,23 +791,46 @@ function viewSetup() {
     ${dealt}${groups}`;
 }
 
+// Fabled/Loric toggles, bootlegger rules and jinxes. Shown in setup (editable) and the grimoire.
+function rulesCard(editable) {
+  const sc = S.script;
+  const fab = scriptFabled();
+  const jinxes = sc ? sc.jinxes : [];
+  const boot = sc ? sc.bootlegger : [];
+  if (!fab.length && !jinxes.length && !boot.length) return '';
+  return `<div class="card"><h3>${t('Special rules')}</h3>
+    ${fab.length ? `<div class="small muted" style="margin-bottom:4px">${t('Fabled & Loric (announced to everyone when in play):')}</div>
+      <div class="grid2">${fab.map(r => `<button class="sm ${S.fabledOn.includes(r.id) ? 'primary' : ''}" data-a="toggleFabled" data-id="${r.id}" ${editable || S.phase !== 'over' ? '' : 'disabled'} title="${esc(r.ability)}">${r.icon} ${esc(r.name)}</button>`).join('')}</div>` : ''}
+    ${boot.length ? `<div class="small" style="margin-top:8px"><b>${t('Bootlegger rules:')}</b><ul style="margin:4px 0 0 18px;padding:0">${boot.map(b => `<li>${esc(b)}</li>`).join('')}</ul></div>` : ''}
+    ${jinxes.length ? `<div class="small" style="margin-top:8px"><b>${t('Jinxes (read all of these aloud at setup):')}</b>${jinxes.map(j => `<div style="margin-top:4px">⚡ <b>${esc(j.aName)} + ${esc(j.bName)}</b>${j.reason ? ': ' + esc(j.reason) : ''}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
+function statusPills(p) {
+  return `${p.drunk ? pill('warn', t('🍺 drunk')) : ''}${p.poisoned ? pill('evil', t('☠ poisoned')) : ''}${(p.reminders || []).map(x => pill('', '🔖 ' + x)).join('')}`;
+}
 function viewGrim() {
   const ps = seatList();
   const alive = alivePlayers().length;
+  const pending = S.pending.map(id => S.players[id]).filter(Boolean);
   return `
+    ${pending.length ? `<div class="card" style="border-color:var(--accent)"><h3>${t('Waiting to join as Travellers')}</h3>${pending.map(p => `
+      <div class="row" style="margin-bottom:6px"><b class="grow">${esc(p.name)}</b>
+        <button class="sm good" data-a="openSeatTraveller" data-pid="${p.pid}">${t('Seat as Traveller')}</button>
+        <button class="sm" data-a="kick" data-pid="${p.pid}">✕</button></div>`).join('')}</div>` : ''}
     <div class="card"><div class="row"><div class="grow">${t('{a} alive · {n} votes to execute', { a: `<b>${alive}</b>`, n: `<b>${threshold()}</b>` })}</div>
       ${S.phase !== 'over' ? `<button class="sm" data-a="tab" data-k="${S.phase}">${S.phase === 'day' ? t('Go to day →') : t('Go to night →')}</button>` : ''}</div>
       ${S.announce && !S.winner ? `<p class="small muted">${esc(tx(S.announce))}</p>` : ''}</div>
     <div class="card list" style="padding:4px">${ps.map((p, i) => `
       <div class="item tap ${p.alive ? '' : 'dead'}" data-a="sheetPlayer" data-pid="${p.pid}"><span class="seat">${i + 1}</span>
         <div class="main"><div class="name">${esc(p.name)} ${p.connected ? '' : '⚠'}</div>
-          <div class="row" style="gap:4px;margin-top:2px">${rolePill(p.role)}${p.fakeRole ? pill('', t('thinks {role}', { role: role(p.fakeRole).name })) : ''}
+          <div class="row" style="gap:4px;margin-top:2px">${rolePill(p.role)}${isTraveller(p) ? pill(isEvil(p) ? 'evil' : 'good', '🧳 ' + (isEvil(p) ? t('evil') : t('good'))) : (p.alignment ? pill(isEvil(p) ? 'evil' : 'good', isEvil(p) ? t('evil') : t('good')) : '')}${p.exiled ? pill('dead', t('exiled')) : ''}${p.fakeRole ? pill('', t('thinks {role}', { role: role(p.fakeRole).name })) : ''}${statusPills(p)}
           ${p.cursed ? pill('evil', t('🕸 cursed')) : ''}${p.protected ? pill('good', t('🌿 safe')) : ''}
           ${!p.alive ? pill('dead', canVote(p) ? t('💀 dead · ghost vote left') : t('💀 dead · no vote')) : ''}
           ${p.role === 'sentinel' && p.sentinelUsed ? pill('', t('used')) : ''}${p.role === 'lucky' && p.luckyUsed ? pill('', t('luck used')) : ''}
           ${p.role === 'duelist' && p.duelUsed ? pill('', t('duel used')) : ''}${p.role === 'hollow' && p.hollowUsed ? pill('', t('double used')) : ''}</div></div>
       </div>`).join('')}</div>
     <div class="card small">${t('Bluffs given to Demon:')} ${S.bluffs.map(rolePill).join(' ')}</div>
+    ${rulesCard(false)}
     ${S.phase === 'over' ? `<button class="primary block" data-a="newGame">${t('New game with same players')}</button>` : ''}`;
 }
 
@@ -744,23 +905,29 @@ function viewDay() {
       <div class="item"><div class="main">${t('{a} nominates {b}', { a: `<b>${esc(pname(r.pid))}</b>`, b: `<b>${esc(pname(r.target))}</b>` })}
         ${nominationProblem(r.pid, r.target) ? `<div class="small" style="color:var(--warn)">${esc(tx(nominationProblem(r.pid, r.target)))}</div>` : ''}</div>
         <button class="sm primary" data-a="acceptNom" data-i="${i}">${t('Open vote')}</button><button class="sm" data-a="dropReq" data-i="${i}">✕</button></div>`
+    : r.kind === 'exile' ? `
+      <div class="item"><div class="main">${t('{a} calls for the exile of {b}', { a: `<b>${esc(pname(r.pid))}</b>`, b: `<b>${esc(pname(r.target))}</b>` })}
+        ${exileProblem(r.target) ? `<div class="small" style="color:var(--warn)">${esc(tx(exileProblem(r.target)))}</div>` : ''}</div>
+        <button class="sm primary" data-a="acceptExile" data-i="${i}">${t('Open exile')}</button><button class="sm" data-a="dropReq" data-i="${i}">✕</button></div>`
     : `<div class="item"><div class="main">${t('{a} challenges {b} (claims Duelist)', { a: `<b>${esc(pname(r.pid))}</b>`, b: `<b>${esc(pname(r.target))}</b>` })}
         <div class="small muted">${t('Real:')} ${rolePill(S.players[r.pid].role)} → ${rolePill(S.players[r.target].role)}. ${t('Suggested:')} ${S.players[r.pid].role === 'duelist' && !S.players[r.pid].cursed && role(S.players[r.target].role).team === 'minion' ? t('DIES') : t('nothing')}</div></div>
         <button class="sm danger" data-a="duel" data-i="${i}" data-kill="1">${t('Dies')}</button><button class="sm" data-a="duel" data-i="${i}" data-kill="0">${t('Nothing')}</button></div>`).join('');
   let votePanel = '';
   if (v) {
+    const exile = v.kind === 'exile';
     const rows = seatList().map(p => {
       const val = v.votes[p.pid];
-      const ok = canVote(p);
-      return `<div class="item ${p.alive ? '' : 'dead'} ${ok ? '' : 'novote'}"><div class="main"><span class="name">${esc(p.name)}</span> ${!p.alive ? pill('dead', ok ? t('👻 ghost vote') : t('💀 cannot vote')) : ''}${voteWeight(p) > 1 ? pill('', '×2') : ''}</div>
+      const ok = canVoteOn(p, v);
+      return `<div class="item ${p.alive ? '' : 'dead'} ${ok ? '' : 'novote'}"><div class="main"><span class="name">${esc(p.name)}</span> ${!p.alive && !exile ? pill('dead', ok ? t('👻 ghost vote') : t('💀 cannot vote')) : ''}${!exile && voteWeight(p) > 1 ? pill('', '×2') : ''}</div>
         <button class="sm ${val === true ? 'okb' : ''}" data-a="hostVote" data-pid="${p.pid}" data-v="1" ${ok ? '' : 'disabled'}>${t('✋ Yes')}</button>
         <button class="sm ${val === false ? 'danger' : ''}" data-a="hostVote" data-pid="${p.pid}" data-v="0" ${ok ? '' : 'disabled'}>${t('No')}</button></div>`;
     }).join('');
     const yes = tallyYes(v);
-    const voted = seatList().filter(p => canVote(p) && v.votes[p.pid] !== undefined).length;
-    const eligible = seatList().filter(canVote).length;
-    votePanel = `<div class="card"><h2>${esc(pname(v.nominator))} → ${esc(pname(v.nominee))}</h2>
-      <div class="votebig">${yes} <span class="small muted">/ ${t('{n} needed', { n: threshold() })}${S.highest ? ' · ' + t('beat {n}', { n: S.highest }) : ''}</span></div>
+    const voted = seatList().filter(p => canVoteOn(p, v) && v.votes[p.pid] !== undefined).length;
+    const eligible = seatList().filter(p => canVoteOn(p, v)).length;
+    votePanel = `<div class="card" ${exile ? 'style="border-color:var(--warn)"' : ''}><h2>${exile ? t('Exile: {name}', { name: esc(pname(v.nominee)) }) : `${esc(pname(v.nominator))} → ${esc(pname(v.nominee))}`}</h2>
+      ${exile ? `<p class="small muted">${t('Not a vote: everyone, alive or dead, may support it; no ghost votes are spent. Needs half of all players.')}</p>` : ''}
+      <div class="votebig">${yes} <span class="small muted">/ ${t('{n} needed', { n: voteNeed(v) })}${!exile && S.highest ? ' · ' + t('beat {n}', { n: S.highest }) : ''}</span></div>
       <p class="center small muted">${t('{a} of {b} eligible voters have answered', { a: voted, b: eligible })}</p>
       <div class="list">${rows}</div>
       <div class="grid2" style="margin-top:8px"><button data-a="cancelVote">${t('Cancel')}</button><button class="primary" data-a="closeVote">${t('Close vote & count')}</button></div></div>`;
@@ -778,6 +945,11 @@ function viewDay() {
       <label>${t('Nominator')}</label><select id="nomA">${alivePlayers().filter(p => !p.nominated).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
       <label>${t('Nominee')}</label><select id="nomB">${seatList().filter(p => !p.wasNominated).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
       <button class="good block" style="margin-top:8px" data-a="manualNom">${t('Open vote')}</button></div>` : ''}
+    ${!v && seatList().some(p => isTraveller(p) && p.alive) ? `<div class="card"><h3>${t('Exile a Traveller')}</h3>
+      <p class="small muted">${t('Any player may call for it. Needs support from half of all players ({n}), alive or dead. It does not use up the day’s execution.', { n: exileThreshold() })}</p>
+      <label>${t('Traveller')}</label><select id="exT">${seatList().filter(p => isTraveller(p) && p.alive && !S.exiledToday.includes(p.pid)).map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
+      <label>${t('Called by')}</label><select id="exC"><option value="">—</option>${seatList().map(p => `<option value="${p.pid}">${esc(p.name)}</option>`).join('')}</select>
+      <button class="block" style="margin-top:8px" data-a="manualExile">${t('Open exile')}</button></div>` : ''}
     ${S.nominations.length ? `<div class="card"><h3>${t("Today's votes")}</h3>${S.nominations.map(n => `<div class="small">${esc(pname(n.nominator))} → <b>${esc(pname(n.nominee))}</b>: ${n.votes} <span class="muted">(${esc(n.voters.join(', '))})</span></div>`).join('')}</div>` : ''}
     <button class="primary block" data-a="openEndDay" ${v ? 'disabled' : ''}>${t('Close all voting & end the day 🌙')}</button>`;
 }
@@ -813,6 +985,17 @@ function renderSheet() {
       <div class="row"><h2 class="grow">${esc(p.name)}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
       <label>${t('Character')}</label><select data-ch="role" data-pid="${p.pid}">${opts(p.role)}</select>
       <label>${t('Thinks they are')} <span class="small">${t('(for Drunk-style characters; their phone shows this one)')}</span></label><select data-ch="fakeRole" data-pid="${p.pid}">${opts(p.fakeRole)}</select>
+      <label>${t('Alignment')}</label><select data-ch="alignment" data-pid="${p.pid}">
+        <option value="" ${!p.alignment ? 'selected' : ''}>${t('From character type')}</option>
+        <option value="good" ${p.alignment === 'good' ? 'selected' : ''}>${t('Good')}</option>
+        <option value="evil" ${p.alignment === 'evil' ? 'selected' : ''}>${t('Evil')}</option></select>
+      <div class="grid2" style="margin-top:10px">
+        <button data-a="toggleFlag" data-f="drunk" data-pid="${p.pid}">${p.drunk ? t('🍺 Drunk: yes') : t('🍺 Drunk: no')}</button>
+        <button data-a="toggleFlag" data-f="poisoned" data-pid="${p.pid}">${p.poisoned ? t('☠ Poisoned: yes') : t('☠ Poisoned: no')}</button>
+      </div>
+      <label>${t('Reminder tokens')}</label>
+      <div class="row" style="gap:6px">${reminderOptions().map(x => `<button class="sm ${(p.reminders || []).includes(x) ? 'primary' : ''}" data-a="toggleReminder" data-pid="${p.pid}" data-r="${esc(x)}">🔖 ${esc(x)}</button>`).join('')}</div>
+      <div class="row" style="margin-top:6px"><input id="customReminder" class="grow" placeholder="${esc(t('Custom reminder…'))}" style="min-height:40px"><button class="sm" data-a="addReminder" data-pid="${p.pid}">+</button></div>
       ${S.locked ? `<div class="grid2" style="margin-top:10px">
         <button class="${p.alive ? 'danger' : 'okb'}" data-a="toggleAlive" data-pid="${p.pid}">${p.alive ? t('💀 Kill') : t('❤️ Revive')}</button>
         <button data-a="toggleFlag" data-f="ghostVote" data-pid="${p.pid}">${p.ghostVote ? t('👻 Ghost vote: yes') : t('👻 Ghost vote: used')}</button>
@@ -822,6 +1005,17 @@ function renderSheet() {
       <label>${t('Private message')}</label><textarea id="pmsg" placeholder="${esc(t('Only {name} sees this', { name: p.name }))}"></textarea>
       <button class="good block" style="margin-top:6px" data-a="pmsg" data-pid="${p.pid}">${t('Send')}</button>
       ${p.msgs.length ? `<h3 style="margin-top:12px">${t('Sent to them')}</h3>${p.msgs.slice(-6).reverse().map(m => `<div class="msg small">${esc(tx(m.text))}</div>`).join('')}` : ''}
+    </div></div>`;
+  } else if (sheet.type === 'seatTraveller') {
+    const p = S.players[sheet.pid]; if (!p) { sheet = null; $sheet.innerHTML = ''; return; }
+    const tr = scriptTravellers();
+    $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
+      <div class="row"><h2 class="grow">${t('Seat {name} as a Traveller', { name: esc(p.name) })}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
+      ${tr.length ? '' : `<p class="small" style="color:var(--warn)">${t('This script has no Travellers. Import a script that lists some.')}</p>`}
+      <label>${t('Traveller character (announced to everyone)')}</label><select id="stRole">${tr.map(r => `<option value="${r.id}">${r.icon} ${esc(r.name)}</option>`).join('')}</select>
+      <label>${t('Alignment (secret; usually good)')}</label><select id="stAlign"><option value="good">${t('Good')}</option><option value="evil">${t('Evil')}</option></select>
+      <label>${t('Sits after')}</label><select id="stAfter">${seatList().map(x => `<option value="${x.pid}">${esc(x.name)}</option>`).join('')}</select>
+      <button class="primary block" style="margin-top:12px" data-a="seatTraveller" data-pid="${p.pid}" ${tr.length ? '' : 'disabled'}>${t('Seat as Traveller')}</button>
     </div></div>`;
   } else if (sheet.type === 'endDay') {
     const ranked = S.nominations.slice().sort((a, b) => b.votes - a.votes);
@@ -843,7 +1037,9 @@ function renderSheet() {
           <button class="primary block" data-a="endDay" data-mode="none">${t('End day without execution')}</button>`}
     </div></div>`;
   } else if (sheet.type === 'import') {
-    const lib = store.get('nf_library', []);
+    const lib = libStore();
+    const nsN = lib.nightsheet ? lib.nightsheet.firstNight.length + lib.nightsheet.otherNight.length : 0;
+    const jxN = Object.keys(lib.jinxes || {}).length;
     $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
       <div class="row"><h2 class="grow">${t('Import a script')}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
       <p class="small muted">${t('Paste or load the JSON exported by an online script builder: a list like')}
@@ -855,18 +1051,36 @@ function renderSheet() {
       ${sheet.err ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.err))}</p>` : ''}
       <div class="grid2" style="margin-top:8px"><button data-a="useBuiltin">${t('Use built-in set')}</button><button class="primary" data-a="importScript" ${sheet.busy ? 'disabled' : ''}>${t('Import script')}</button></div>
       <hr>
-      <h3>${t('Character library')} <span class="pill">${t('{n} characters', { n: lib.length })}</span></h3>
-      <p class="small muted">${t('A JSON list of character definitions (id, name, team, ability, firstNight, otherNight, …reminder) used to look up scripts that only list ids. Saved on this device.')}</p>
+      <h3>${t('Character library')}</h3>
+      <div class="row" style="gap:6px;margin-bottom:6px">${pill(lib.roles.length ? 'ok' : '', t('{n} characters', { n: lib.roles.length }))}${pill(nsN ? 'ok' : '', nsN ? t('night sheet ✓') : t('no night sheet'))}${pill(jxN ? 'ok' : '', t('{n} jinx entries', { n: jxN }))}</div>
+      <p class="small muted">${t('Load your own data files here, one at a time; the app detects which kind each is: a character list (id, name, team, ability, …), a night sheet ({"firstNight": [...], "otherNight": [...]}) or a jinx list. Scripts that only list ids are looked up in it. Saved on this device.')}</p>
       <label>${t('Library URL')}</label><input id="libUrl" type="url" placeholder="https://…/characters.json">
       <label>${t('…or a file')}</label><input type="file" accept=".json,application/json" data-ch="file" data-target="libText">
       <label>${t('…or paste JSON')}</label><textarea id="libText"></textarea>
       ${sheet.libErr ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.libErr))}</p>` : ''}
-      <div class="grid2" style="margin-top:8px"><button data-a="clearLibrary" ${lib.length ? '' : 'disabled'}>${t('Clear library')}</button><button class="good" data-a="importLibrary" ${sheet.busy ? 'disabled' : ''}>${t('Import library')}</button></div>
+      <div class="grid2" style="margin-top:8px"><button data-a="clearLibrary" ${lib.roles.length || nsN || jxN ? '' : 'disabled'}>${t('Clear library')}</button><button class="good" data-a="importLibrary" ${sheet.busy ? 'disabled' : ''}>${t('Import library')}</button></div>
     </div></div>`;
   }
 }
 
 // ---------- script import ----------
+// The Storyteller's own data files, saved on this device: { roles: [...], nightsheet: {...} | null, jinxes: {...} }.
+function libStore() {
+  const v = store.get('nf_library', null);
+  if (Array.isArray(v)) return { roles: v, nightsheet: null, jinxes: {} }; // older format: plain character list
+  return Object.assign({ roles: [], nightsheet: null, jinxes: {} }, v || {});
+}
+// Reminder tokens the Storyteller can place: from characters on the script, plus any already in use.
+function reminderOptions() {
+  const set = new Set();
+  const inPlay = new Set(seatList().map(p => p.role));
+  for (const r of ROLES) {
+    if (inPlay.has(r.id)) (r.reminders || []).forEach(x => set.add(x));
+    (r.remindersGlobal || []).forEach(x => set.add(x));
+  }
+  for (const p of seatList()) (p.reminders || []).forEach(x => set.add(x));
+  return [...set];
+}
 // Read the inputs before any re-render (re-rendering the sheet would wipe them).
 function sourceOf(urlId, textId) {
   return { url: document.getElementById(urlId).value.trim(), text: document.getElementById(textId).value.trim() };
@@ -881,9 +1095,11 @@ async function importScript() {
   sheet.url = src.url; sheet.text = src.text;
   sheet.busy = true; sheet.err = ''; renderSheet();
   try {
-    const parsed = ScriptImport.parse(await readSource(src), store.get('nf_library', []));
+    const parsed = ScriptImport.parse(await readSource(src), libStore());
     S.script = parsed; applyScript();
     S.selection = []; S.dealt = false; S.bluffs = [];
+    // Jinxed pairs on the script bring the Djinn into play, if the library defines it.
+    S.fabledOn = parsed.jinxes.length && parsed.fabled.some(r => r.id === 'djinn') ? ['djinn'] : [];
     log(L('Script imported: {name} ({n} characters).', { name: parsed.name, n: parsed.roles.length }));
     toast(t('Imported "{name}": {n} characters', { name: parsed.name, n: parsed.roles.length }) + (parsed.missing.length ? ', ' + t('{n} unknown', { n: parsed.missing.length }) : ''));
     sheet = null; save();
@@ -895,9 +1111,13 @@ async function importLibrary() {
   const src = sourceOf('libUrl', 'libText');
   sheet.busy = true; sheet.libErr = ''; renderSheet();
   try {
-    const list = ScriptImport.parseLibrary(await readSource(src));
-    store.set('nf_library', list);
-    toast(t('Library saved: {n} characters. Now import your script.', { n: list.length }));
+    const res = ScriptImport.parseLibrary(await readSource(src));
+    const lib = libStore();
+    if (res.kind === 'roles') { lib.roles = res.data; toast(t('Library saved: {n} characters. Now import your script.', { n: res.data.length })); }
+    else if (res.kind === 'nightsheet') { lib.nightsheet = res.data; toast(t('Night sheet saved.')); }
+    else { lib.jinxes = res.data; toast(t('Jinx list saved: {n} entries.', { n: Object.keys(res.data).length })); }
+    store.set('nf_library', lib);
+    document.getElementById('libText').value = '';
     sheet.busy = false; renderSheet();
   } catch (e) {
     sheet.busy = false; sheet.libErr = e.message; renderSheet();
@@ -927,6 +1147,10 @@ document.addEventListener('change', (e) => {
       log(L('{name} is now {role}.', { name: p.name, role: roleRef(p.role) }));
     }
   } else if (el.dataset.ch === 'fakeRole') { p.fakeRole = el.value || null; }
+  else if (el.dataset.ch === 'alignment') {
+    p.alignment = el.value || null;
+    if (S.locked) log(L('{name} is now {align}.', { name: p.name, align: L(isEvil(p) ? 'evil' : 'good') }));
+  }
   save();
 });
 
@@ -954,6 +1178,36 @@ document.addEventListener('click', (e) => {
     }
     case 'randomRoles': randomSelection(); S.phase = 'setup'; save(); break;
     case 'openImport': sheet = { type: 'import' }; renderSheet(); break;
+    case 'toggleTraveller': {
+      const i = S.travellerPids.indexOf(d.pid);
+      if (i >= 0) S.travellerPids.splice(i, 1); else S.travellerPids.push(d.pid);
+      S.dealt = false; save(); break;
+    }
+    case 'toggleFabled': {
+      const i = S.fabledOn.indexOf(d.id);
+      if (i >= 0) S.fabledOn.splice(i, 1);
+      else { S.fabledOn.push(d.id); if (S.locked) { msgAll(L('The Storyteller adds the {role}.', { role: roleRef(d.id) })); log(L('Added the {role}.', { role: roleRef(d.id) })); } }
+      save(); break;
+    }
+    case 'openSeatTraveller': sheet = { type: 'seatTraveller', pid: d.pid }; renderSheet(); break;
+    case 'seatTraveller': {
+      const r = document.getElementById('stRole').value, al = document.getElementById('stAlign').value, after = document.getElementById('stAfter').value;
+      sheet = null; seatTraveller(d.pid, r, al, after); break;
+    }
+    case 'toggleReminder': {
+      const p = S.players[d.pid]; p.reminders = p.reminders || [];
+      const i = p.reminders.indexOf(d.r);
+      if (i >= 0) p.reminders.splice(i, 1); else p.reminders.push(d.r);
+      save(); break;
+    }
+    case 'addReminder': {
+      const txt = document.getElementById('customReminder').value.trim(); if (!txt) break;
+      const p = S.players[d.pid]; p.reminders = p.reminders || [];
+      if (!p.reminders.includes(txt)) p.reminders.push(txt);
+      save(); break;
+    }
+    case 'acceptExile': { const r = S.requests[Number(d.i)]; if (r) openExile(r.pid, r.target); break; }
+    case 'manualExile': { const tg = document.getElementById('exT').value; if (tg) openExile(document.getElementById('exC').value || null, tg); break; }
     case 'importScript': importScript(); break;
     case 'importLibrary': importLibrary(); break;
     case 'clearLibrary': if (confirm(t('Remove the saved character library?'))) { store.del('nf_library'); renderSheet(); } break;
@@ -1008,7 +1262,11 @@ document.addEventListener('click', (e) => {
     case 'duel': resolveDuel(Number(d.i), d.kill === '1'); break;
     case 'manualNom': openVote(document.getElementById('nomA').value, document.getElementById('nomB').value); break;
     case 'hostVote': if (S.vote) { S.vote.votes[d.pid] = d.v === '1'; save(); } break;
-    case 'cancelVote': if (S.vote) { S.players[S.vote.nominator].nominated = false; S.players[S.vote.nominee].wasNominated = false; S.vote = null; S.announce = L('Vote cancelled.'); save(); } break;
+    case 'cancelVote': if (S.vote) {
+      if (S.vote.kind === 'exile') S.exiledToday = S.exiledToday.filter(x => x !== S.vote.nominee);
+      else { S.players[S.vote.nominator].nominated = false; S.players[S.vote.nominee].wasNominated = false; }
+      S.vote = null; S.announce = L('Vote cancelled.'); save();
+    } break;
     case 'closeVote': closeVote(); break;
     case 'openEndDay': if (S.vote) toast(t('Close the open vote first.')); else { sheet = { type: 'endDay' }; renderSheet(); } break;
     case 'endDay': sheet = null; endDay(d.mode); break;
@@ -1022,8 +1280,8 @@ document.addEventListener('click', (e) => {
     case 'forceDay': if (confirm(t('Skip to day (applies dawn deaths)?'))) startDay(); break;
     case 'win': if (confirm(t(d.side === 'good' ? 'Declare good the winner?' : 'Declare evil the winner?'))) { endGame(d.side, L('Storyteller decision.')); save(); } break;
     case 'newGame': {
-      const keep = { room: S.room, hostToken: S.hostToken, seats: S.seats, players: S.players, script: S.script, ghostVotes: S.ghostVotes };
-      S = freshState(keep.room, keep.hostToken); S.seats = keep.seats; S.script = keep.script; S.ghostVotes = keep.ghostVotes;
+      const keep = { room: S.room, hostToken: S.hostToken, seats: S.seats, players: S.players, script: S.script, ghostVotes: S.ghostVotes, fabledOn: S.fabledOn };
+      S = freshState(keep.room, keep.hostToken); S.seats = keep.seats; S.script = keep.script; S.ghostVotes = keep.ghostVotes; S.fabledOn = keep.fabledOn;
       for (const id of keep.seats) S.players[id] = newPlayer(id, keep.players[id].name);
       syncPresence(); tab = 'setup'; S.phase = 'setup'; save(); break;
     }

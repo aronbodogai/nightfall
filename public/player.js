@@ -30,7 +30,7 @@ onLangChange(() => render());
 
 function onMsg(m) {
   if (m.t === 'joined') {
-    me = { room: m.room, token: m.token, pid: m.pid, name: m.name };
+    me = { room: m.room, token: m.token, pid: m.pid, name: m.name, late: !!m.late };
     store.set('nf_player', me); joinError = ''; pendingName = null;
     history.replaceState(null, '', '/?room=' + m.room);
   } else if (m.t === 'error') {
@@ -80,7 +80,7 @@ function render() {
     title.textContent = t('Room {code}', { code: me.room });
     $tabs.innerHTML = '';
     $app.innerHTML = `<div class="card center" style="margin-top:24px"><div style="font-size:2.5rem">🕯️</div><h2>${t('Welcome, {name}', { name: esc(me.name) })}</h2>
-      <p class="muted">${t('Waiting for the Storyteller to deal characters…')}</p>${hostOnline ? '' : `<p class="small" style="color:var(--warn)">${t('Storyteller is offline.')}</p>`}
+      <p class="muted">${me.late ? t('The game is already running. The Storyteller can seat you as a Traveller.') : t('Waiting for the Storyteller to deal characters…')}</p>${hostOnline ? '' : `<p class="small" style="color:var(--warn)">${t('Storyteller is offline.')}</p>`}
       <button class="sm ghost" data-a="leave">${t('Leave room')}</button></div>`;
     return;
   }
@@ -140,8 +140,19 @@ function viewScript() {
       <div class="roleline ${r.id === mine && reveal ? 'mine' : ''}"><div class="ri">${r.icon}</div>
         <div><b>${esc(r.name)}</b><div class="small muted">${esc(r.ability)}</div></div></div>`).join('')}</div>`;
   }).join('');
+  const line = (r) => `<div class="roleline"><div class="ri">${r.icon}</div><div><b>${esc(r.name)}</b><div class="small muted">${esc(r.ability)}</div></div></div>`;
+  const fabled = (sc.fabled || []).map(locRole);
+  const travellers = (sc.travellers || []).map(locRole);
+  const rules = (sc.bootlegger || []).length || (sc.jinxes || []).length || fabled.length ? `<div class="card" style="border-color:var(--accent)"><h3>${t('Special rules in this game')}</h3>
+      ${fabled.map(line).join('')}
+      ${(sc.bootlegger || []).length ? `<div class="small" style="margin-top:6px"><b>${t('Bootlegger rules:')}</b><ul style="margin:4px 0 0 18px;padding:0">${sc.bootlegger.map(b => `<li>${esc(b)}</li>`).join('')}</ul></div>` : ''}
+      ${(sc.jinxes || []).length ? `<div class="small" style="margin-top:6px"><b>${t('Jinxes:')}</b>${sc.jinxes.map(j => `<div style="margin-top:4px">⚡ <b>${esc(j.aName)} + ${esc(j.bName)}</b>${j.reason ? ': ' + esc(j.reason) : ''}</div>`).join('')}</div>` : ''}
+    </div>` : '';
   return `<div class="card"><h2 style="margin:0">${esc(sc.name)}</h2>${sc.author ? `<div class="small muted">${t('by {author}', { author: esc(sc.author) })}</div>` : ''}
-    <div class="small muted">${t('Every character that might be in this game. Not all of them are in play.')}</div></div>${groups}`;
+    <div class="small muted">${t('Every character that might be in this game. Not all of them are in play.')}</div>
+    ${sc.almanac ? `<div class="small" style="margin-top:4px"><a href="${esc(sc.almanac)}" target="_blank" rel="noopener" style="color:var(--accent)">${t('Almanac ↗')}</a></div>` : ''}</div>
+    ${rules}${groups}
+    ${travellers.length ? `<div class="card"><h3>${teamLabel('traveller', true)}</h3>${travellers.map(line).join('')}</div>` : ''}`;
 }
 
 // ---------- notes (stored only on this phone) ----------
@@ -190,37 +201,47 @@ function viewTown() {
   const v = V.vote;
   let voteCard = '';
   if (v && v.open) {
+    const exile = v.kind === 'exile';
     const can = V.me.canVote;
-    const why = !V.me.alive
-      ? (can ? t('👻 You are dead: voting EXECUTE spends your one ghost vote.') : (V.ghostVotes ? t('💀 You are dead and have used your ghost vote, so you cannot vote.') : t('💀 You are dead, so you cannot vote.')))
-      : '';
+    const elig = (pid) => (v.eligible ? !!v.eligible[pid] : true);
+    const why = exile
+      ? t('Exile is not a vote: everyone may support it, alive or dead, and no ghost vote is spent.')
+      : !V.me.alive
+        ? (can ? t('👻 You are dead: voting EXECUTE spends your one ghost vote.') : (V.ghostVotes ? t('💀 You are dead and have used your ghost vote, so you cannot vote.') : t('💀 You are dead, so you cannot vote.')))
+        : '';
     const hands = V.seats.map(s => {
       const h = v.hands ? v.hands[s.pid] : undefined;
-      const state = !s.canVote ? 'novote' : h === true ? 'yes' : h === false ? 'no' : 'wait';
-      const label = { novote: t('💀 cannot vote'), yes: t('✋ execute'), no: t('no'), wait: '…' }[state];
+      const state = !elig(s.pid) ? 'novote' : h === true ? 'yes' : h === false ? 'no' : 'wait';
+      const label = { novote: t('💀 cannot vote'), yes: exile ? t('✋ exile') : t('✋ execute'), no: t('no'), wait: '…' }[state];
       return `<div class="hand ${state}"><span>${esc(s.name)}</span><b>${label}</b></div>`;
     }).join('');
-    voteCard = `<div class="card ${can ? '' : 'novote'}" style="border-color:var(--accent)"><h3>${t('Vote now')}</h3>
-      <h2>${t('{a} nominated {b}', { a: esc(v.nominator), b: esc(v.nominee) })}</h2>
-      <div class="votebig">${v.yes} <span class="small muted">/ ${t('{n} needed', { n: V.threshold })}${V.block ? ' · ' + t('must beat {n}', { n: V.block.votes }) : ''}</span></div>
+    voteCard = `<div class="card ${can ? '' : 'novote'}" style="border-color:var(${exile ? '--warn' : '--accent'})"><h3>${exile ? t('Exile') : t('Vote now')}</h3>
+      <h2>${exile ? t('Exile {name}?', { name: esc(v.nominee) }) : t('{a} nominated {b}', { a: esc(v.nominator), b: esc(v.nominee) })}</h2>
+      <div class="votebig">${v.yes} <span class="small muted">/ ${t('{n} needed', { n: v.need || V.threshold })}${!exile && V.block ? ' · ' + t('must beat {n}', { n: V.block.votes }) : ''}</span></div>
       ${why ? `<p class="small" style="color:${can ? 'var(--warn)' : 'var(--muted)'}">${why}</p>` : ''}
-      <div class="grid2"><button class="${v.myVote === true ? 'okb' : ''}" style="min-height:64px" data-a="vote" data-v="1" ${can ? '' : 'disabled'}>${t('✋ Execute')}</button>
+      <div class="grid2"><button class="${v.myVote === true ? 'okb' : ''}" style="min-height:64px" data-a="vote" data-v="1" ${can ? '' : 'disabled'}>${exile ? t('✋ Exile') : t('✋ Execute')}</button>
         <button class="${v.myVote === false ? 'danger' : ''}" style="min-height:64px" data-a="vote" data-v="0" ${can ? '' : 'disabled'}>${t('No')}</button></div>
-      <p class="center small muted">${!can ? t('You are watching this vote.') : v.myVote === null ? t('You have not voted yet.') : (v.myVote ? t('Your vote: EXECUTE (you can change it until the Storyteller closes the vote)') : t('Your vote: no (you can change it until the Storyteller closes the vote)'))}</p>
+      <p class="center small muted">${!can ? t('You are watching this vote.') : v.myVote === null ? t('You have not voted yet.') : (v.myVote ? (exile ? t('You support the exile (you can change it until the Storyteller closes it)') : t('Your vote: EXECUTE (you can change it until the Storyteller closes the vote)')) : t('Your vote: no (you can change it until the Storyteller closes the vote)'))}</p>
       <div class="hands">${hands}</div></div>`;
   }
   const nominate = V.me.canNominate
     ? `<button class="good block" style="margin-bottom:12px" data-a="openNominate" ${V.pendingRequest ? 'disabled' : ''}>${V.pendingRequest ? t('Request sent: waiting for Storyteller') : t('👉 Nominate a player')}</button>`
     : (V.phase === 'day' && !V.vote ? `<div class="card small muted center">${V.nomsOpen ? (V.me.alive ? t('You have already nominated today.') : t('Dead players cannot nominate.')) : t('Nominations are closed. The Storyteller will open them.')}</div>` : '');
+  // Any player, alive or dead, may call for a Traveller's exile during the day.
+  const exileBtn = V.phase === 'day' && !V.vote && V.seats.some(s => s.traveller && s.alive && s.pid !== V.me.pid)
+    ? `<button class="block" style="margin-bottom:12px" data-a="openExile">${t('🧳 Call for a Traveller’s exile')}</button>` : '';
   const seats = V.seats.map(s => `
     <div class="item ${s.alive ? '' : 'dead'}"><span class="seat">${s.alive ? s.seat : '💀'}</span>
       <div class="main"><span class="name">${esc(s.name)}</span>${s.pid === V.me.pid ? ` <span class="small muted">${t('(you)')}</span>` : ''}
         <div class="small ${s.alive ? 'alive-label' : 'muted'}">${s.alive ? t('alive') : (s.canVote ? t('dead · 1 ghost vote left') : t('dead · cannot vote'))}</div></div>
+      ${s.traveller ? pill('warn', '🧳 ' + (s.traveller.id ? locRole(s.traveller).name : t('Traveller'))) : ''}
+      ${s.exiled ? pill('dead', t('exiled')) : ''}
       ${!s.alive ? pill('dead', s.canVote ? '👻' : '✖') : ''}
       ${V.block && V.block.name === s.name ? pill('evil', t('on the block')) : ''}</div>`).join('');
   return `${voteCard}
     ${V.phase === 'day' ? `<div class="card small">${esc(tx(V.announce))}<div class="muted">${t('{a} alive · {n} votes to execute', { a: V.seats.filter(s => s.alive).length, n: V.threshold })}</div></div>` : ''}
     ${nominate}
+    ${exileBtn}
     ${seatingCircle()}
     ${neighbours()}
     <div class="card list" style="padding:4px">${seats}</div>
@@ -247,6 +268,9 @@ function renderSheet() {
   } else if (sheet.type === 'nominate') {
     title = t('Nominate a player'); sub = t('Each player can be nominated once per day.');
     pool = V.seats.filter(s => V.nominatable.includes(s.pid)); btn = t('Nominate');
+  } else if (sheet.type === 'exile') {
+    title = t('Call for a Traveller’s exile'); sub = t('Everyone, alive or dead, may then support the exile. Say it out loud too.');
+    pool = V.seats.filter(s => s.traveller && s.alive && s.pid !== V.me.pid); btn = t('Call for exile');
   } else if (sheet.type === 'duel') {
     title = t('Challenge a player'); sub = t('Announce your challenge out loud too.');
     pool = V.seats.filter(s => s.pid !== V.me.pid && s.alive); btn = t('Challenge');
@@ -290,6 +314,7 @@ document.addEventListener('click', (e) => {
     case 'openPrompt': sheet = { type: 'prompt', sel: [] }; break;
     case 'openNominate': sheet = { type: 'nominate', sel: [] }; break;
     case 'openDuel': sheet = { type: 'duel', sel: [] }; break;
+    case 'openExile': sheet = { type: 'exile', sel: [] }; break;
     case 'closeSheet': sheet = null; break;
     case 'sel': {
       const max = Number(d.max) || 1; const i = sheet.sel.indexOf(d.pid);
@@ -300,6 +325,7 @@ document.addEventListener('click', (e) => {
       if (sheet.type === 'prompt') act({ kind: 'answer', promptId: V.prompt.id, targets: sheet.sel });
       else if (sheet.type === 'nominate') act({ kind: 'nominate', target: sheet.sel[0] });
       else if (sheet.type === 'duel') act({ kind: 'duel', target: sheet.sel[0] });
+      else if (sheet.type === 'exile') act({ kind: 'exile', target: sheet.sel[0] });
       sheet = null; break;
     }
   }
