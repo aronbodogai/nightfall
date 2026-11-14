@@ -266,7 +266,20 @@ function promptText(p) {
   if (p.max > p.min) return t('Choose {a}–{b} players.', { a: p.min, b: p.max });
   return p.min === 1 ? t('Choose 1 player.') : t('Choose {n} players.', { n: p.min });
 }
+// Keep scroll position, typed values and focus when an update rebuilds the open sheet.
 function renderSheet() {
+  const old = $sheet.querySelector('.sheet');
+  const kept = old && { type: $sheet.dataset.type, top: old.scrollTop, focus: document.activeElement && document.activeElement.id, vals: {} };
+  if (kept) old.querySelectorAll('input[id]:not([type=file]), textarea[id], select[id]').forEach(el => { kept.vals[el.id] = el.value; });
+  buildSheet();
+  $sheet.dataset.type = sheet ? sheet.type : '';
+  const now = $sheet.querySelector('.sheet');
+  if (!now || !kept || kept.type !== $sheet.dataset.type) return;
+  for (const [id, v] of Object.entries(kept.vals)) { const el = document.getElementById(id); if (el && now.contains(el) && el.value !== v && !(el.tagName === 'SELECT' && ![...el.options].some(o => o.value === v))) el.value = v; }
+  now.scrollTop = kept.top;
+  if (kept.focus) { const el = document.getElementById(kept.focus); if (el && now.contains(el)) el.focus({ preventScroll: true }); }
+}
+function buildSheet() {
   if (!sheet || !V) { $sheet.innerHTML = ''; return; }
   let title = '', sub = '', min = 1, max = 1, pool = [], btn = '';
   if (sheet.type === 'prompt') {

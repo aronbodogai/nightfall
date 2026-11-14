@@ -980,7 +980,21 @@ function viewMore() {
 }
 
 // ---------- sheets ----------
+// Re-rendering replaces the sheet's HTML (state updates arrive all the time), so keep the
+// scroll position, typed values and focus of the open sheet across the rebuild.
 function renderSheet() {
+  const old = $sheet.querySelector('.sheet');
+  const kept = old && { type: $sheet.dataset.type, top: old.scrollTop, focus: document.activeElement && document.activeElement.id, vals: {} };
+  if (kept) old.querySelectorAll('input[id]:not([type=file]), textarea[id], select[id]').forEach(el => { kept.vals[el.id] = el.value; });
+  buildSheet();
+  $sheet.dataset.type = sheet ? sheet.type + ':' + (sheet.pid || '') : '';
+  const now = $sheet.querySelector('.sheet');
+  if (!now || !kept || kept.type !== $sheet.dataset.type) return;
+  for (const [id, v] of Object.entries(kept.vals)) { const el = document.getElementById(id); if (el && now.contains(el) && el.value !== v && !(el.tagName === 'SELECT' && ![...el.options].some(o => o.value === v))) el.value = v; }
+  now.scrollTop = kept.top;
+  if (kept.focus) { const el = document.getElementById(kept.focus); if (el && now.contains(el)) el.focus({ preventScroll: true }); }
+}
+function buildSheet() {
   if (!sheet) { $sheet.innerHTML = ''; return; }
   if (sheet.type === 'player') {
     const p = S.players[sheet.pid]; if (!p) { sheet = null; $sheet.innerHTML = ''; return; }
