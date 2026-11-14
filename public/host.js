@@ -158,7 +158,7 @@ function tallyYes(v) {
 // Exile needs at least half of all players (alive and dead); execution needs at least half of the living.
 const exileThreshold = () => Math.ceil(seatList().length / 2);
 const voteNeed = (v) => (v && v.kind === 'exile' ? exileThreshold() : threshold());
-const roleOut = (r) => (r ? { id: r.id, name: r.name, team: r.team, icon: r.icon, ability: r.ability, imported: !!r.imported } : null);
+const roleOut = (r) => (r ? { id: r.id, name: r.name, team: r.team, icon: r.icon, image: r.image || [], ability: r.ability, imported: !!r.imported } : null);
 
 function buildViews() {
   const views = {};
@@ -166,7 +166,7 @@ function buildViews() {
   const seats = seatList().map((p, i) => ({ pid: p.pid, name: p.name, seat: i + 1, alive: p.alive, ghostVote: p.ghostVote, canVote: canVote(p),
     traveller: isTraveller(p) && p.role ? roleOut(role(p.role)) : (isTraveller(p) ? {} : null), exiled: !!p.exiled }));
   // Roles are only revealed to everyone once the game is over.
-  const reveal = S.winner ? seatList().map(p => ({ name: p.name, role: roleRef(p.role), icon: role(p.role).icon, team: role(p.role).team,
+  const reveal = S.winner ? seatList().map(p => ({ name: p.name, role: roleRef(p.role), icon: role(p.role).icon, image: role(p.role).image || [], team: role(p.role).team,
     evil: isEvil(p), thought: p.fakeRole ? roleRef(p.fakeRole) : null })) : null;
   // The script (every character that might be in play), its rules and jinxes are public information.
   const sc = S.script;
@@ -671,7 +671,8 @@ function toast(text) {
   document.body.appendChild(el); setTimeout(() => el.remove(), 3200);
 }
 function pill(cls, text) { return `<span class="pill ${cls}">${esc(text)}</span>`; }
-function rolePill(id) { if (!id) return ''; const r = role(id); return pill(r.team, r.icon + ' ' + r.name); }
+function pillH(cls, html) { return `<span class="pill ${cls}">${html}</span>`; } // html must already be escaped
+function rolePill(id) { if (!id) return ''; const r = role(id); return pillH(r.team, roleArt(r, null, 'xs') + ' ' + esc(r.name)); }
 
 function render() {
   const title = document.getElementById('toptitle');
@@ -759,7 +760,7 @@ function viewSetup() {
     return `<div class="card"><div class="row"><h3 class="grow">${teamLabel(team, true)}</h3>${pill(c === target[team] ? 'ok' : 'warn', `${c} / ${target[team]}`)}</div>
       <div class="grid2">${ROLES.filter(r => r.team === team).map(r => {
         const on = S.selection.includes(r.id);
-        return `<button class="${on ? (isEvilTeam(team) ? 'danger' : 'good') : ''}" data-a="toggleRole" data-id="${r.id}" style="text-align:left;min-height:56px" title="${esc(r.ability)}">${r.icon} ${esc(r.name)}${r.setup ? ` <span class="pill warn">${t('setup')}</span>` : ''}</button>`;
+        return `<button class="${on ? (isEvilTeam(team) ? 'danger' : 'good') : ''}" data-a="toggleRole" data-id="${r.id}" style="text-align:left;min-height:56px" title="${esc(r.ability)}">${roleArt(r, null, 'sm')} ${esc(r.name)}${r.setup ? ` <span class="pill warn">${t('setup')}</span>` : ''}</button>`;
       }).join('')}</div></div>`;
   }).join('');
   const sc = S.script;
@@ -801,7 +802,7 @@ function rulesCard(editable) {
   if (!fab.length && !jinxes.length && !boot.length) return '';
   return `<div class="card"><h3>${t('Special rules')}</h3>
     ${fab.length ? `<div class="small muted" style="margin-bottom:4px">${t('Fabled & Loric (announced to everyone when in play):')}</div>
-      <div class="grid2">${fab.map(r => `<button class="sm ${S.fabledOn.includes(r.id) ? 'primary' : ''}" data-a="toggleFabled" data-id="${r.id}" ${editable || S.phase !== 'over' ? '' : 'disabled'} title="${esc(r.ability)}">${r.icon} ${esc(r.name)}</button>`).join('')}</div>` : ''}
+      <div class="grid2">${fab.map(r => `<button class="sm ${S.fabledOn.includes(r.id) ? 'primary' : ''}" data-a="toggleFabled" data-id="${r.id}" ${editable || S.phase !== 'over' ? '' : 'disabled'} title="${esc(r.ability)}">${roleArt(r, null, 'sm')} ${esc(r.name)}</button>`).join('')}</div>` : ''}
     ${boot.length ? `<div class="small" style="margin-top:8px"><b>${t('Bootlegger rules:')}</b><ul style="margin:4px 0 0 18px;padding:0">${boot.map(b => `<li>${esc(b)}</li>`).join('')}</ul></div>` : ''}
     ${jinxes.length ? `<div class="small" style="margin-top:8px"><b>${t('Jinxes (read all of these aloud at setup):')}</b>${jinxes.map(j => `<div style="margin-top:4px">⚡ <b>${esc(j.aName)} + ${esc(j.bName)}</b>${j.reason ? ': ' + esc(j.reason) : ''}</div>`).join('')}</div>` : ''}
   </div>`;
@@ -868,7 +869,7 @@ function viewNight() {
       const { p, r, choose, upTo } = stepDef(st);
       const max = upTo || choose;
       const mal = malfunctioning(p);
-      head = `${r.icon} ${esc(r.name)} — ${esc(p.name)} ${p.role === 'sleepwalker' ? pill('warn', role('sleepwalker').name) : ''}${p.cursed ? pill('evil', t('cursed')) : ''}`;
+      head = `${roleArt(r, null, 'sm')} ${esc(r.name)} — ${esc(p.name)} ${p.role === 'sleepwalker' ? pill('warn', role('sleepwalker').name) : ''}${p.cursed ? pill('evil', t('cursed')) : ''}`;
       if (cur || (done && st.choice.length)) {
         // Cache so random suggestions (Archivist, Twin) stay stable across re-renders.
         const sugKey = st.choice.join(',') + '|' + LANG;

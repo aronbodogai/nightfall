@@ -85,6 +85,18 @@ window.setRoles = (list) => {
   window.ROLE = Object.fromEntries(list.map(r => [r.id, r]));
 };
 window.TEAM_ICON = { townsfolk: '🏠', outsider: '🌀', minion: '🗡️', demon: '😈', traveller: '🧳', fabled: '📖', loric: '🜁' };
+
+// Character art: r.image is a list of image URLs ([good/default, evil]). Falls back to the team emoji
+// when there is no art or it can't load (e.g. a local network without internet).
+window.roleArt = (r, evil, cls) => {
+  if (!r) return '';
+  const imgs = (r.image || []).filter(u => /^https?:\/\//.test(u));
+  if (!imgs.length) return r.icon || '';
+  const ev = evil == null ? isEvilTeam(r.team) : evil;
+  const src = ev && imgs[1] ? imgs[1] : imgs[0];
+  const q = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  return `<img class="art ${cls || ''}" src="${q(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-f="${q(r.icon || '')}" onerror="this.insertAdjacentText('afterend',this.dataset.f);this.remove()">`;
+};
 window.TEAM_LABEL = { townsfolk: 'Townsfolk', outsider: 'Outsider', minion: 'Minion', demon: 'Demon' };
 window.isEvilTeam = (team) => team === 'minion' || team === 'demon';
 

@@ -120,3 +120,10 @@ label { display: block; font-size: .85rem; color: var(--muted); margin: 8px 0 4p
 hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
 .code { font-family: ui-monospace, monospace; font-size: 2rem; letter-spacing: .2em; font-weight: 800; color: var(--accent); }
 @media (min-width: 720px) { .tabs { max-width: 720px; margin: 0 auto; border-radius: 16px 16px 0 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
+
+/* character art */
+img.art { width: 1.5em; height: 1.5em; object-fit: contain; vertical-align: middle; }
+img.art.xs { width: 1.3em; height: 1.3em; margin: -2px 0; }
+img.art.sm { width: 40px; height: 40px; margin: -6px 2px -6px -4px; }
+.roleline .ri img.art { width: 40px; height: 40px; }
+img.art.lg { width: 140px; height: 140px; }

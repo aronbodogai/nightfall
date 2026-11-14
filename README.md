@@ -113,7 +113,9 @@ normalised (lowercase, letters and digits only) and `traveler` is read as `trave
 Sects & Violets, and a list of the community scripts in the official release. These download The
 Pandemonium Institute's published toolmaker files from `release.botc.app` (character list, night sheet,
 jinxes) at the moment you tap; nothing official is bundled in this repository. A script with jinxes
-brings in the Djinn automatically. Blood on the Clocktower is © The Pandemonium Institute; this is
+brings in the Djinn automatically. Characters from the official list show TPI's published icons
+(good or evil version by alignment), loaded by each device from `release.botc.app`; custom characters
+use the `image` URL from their script. Without internet the team emoji is shown instead. Blood on the Clocktower is © The Pandemonium Institute; this is
 unofficial community content under their Community Created Content Policy.
 
 The app ships no official character data. Scripts that list only ids need a **character library**

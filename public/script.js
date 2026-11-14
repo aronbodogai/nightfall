@@ -134,6 +134,17 @@ window.ScriptImport = (() => {
   }
 
   // Convert a character definition into the app's role shape.
+  // Art: the character's own "image" (a URL or a list [good, evil, …]); otherwise, for characters from the
+  // official character list (they carry an "edition"), the icon The Pandemonium Institute publishes for it.
+  const ART = 'https://release.botc.app/resources/characters/';
+  function imageOf(d, id, team) {
+    const own = (Array.isArray(d.image) ? d.image : d.image ? [d.image] : []).map(String).filter(u => /^https?:\/\//.test(u));
+    if (own.length) return own;
+    const ed = typeof d.edition === 'string' && /^[a-z0-9]+$/.test(d.edition) ? d.edition : '';
+    if (!ed) return [];
+    if (team === 'fabled' || team === 'loric') return [ART + ed + '/' + id + '.webp'];
+    return [ART + ed + '/' + id + '_g.webp', ART + ed + '/' + id + '_e.webp'];
+  }
   function toRole(d, orderOf) {
     if (d.first !== undefined || d.other !== undefined || (d.team && !d.ability && d.icon)) return d; // built-in Nightfall role
     const team = normTeam(d.team);
@@ -142,7 +153,7 @@ window.ScriptImport = (() => {
     const choose = guessChoose(ability);
     const r = {
       id, name: String(d.name || d.id), team, ability,
-      icon: TEAM_ICON[team] || '❔', setup: !!d.setup, imported: true,
+      icon: TEAM_ICON[team] || '❔', image: imageOf(d, id, team), setup: !!d.setup, imported: true,
       reminders: Array.isArray(d.reminders) ? d.reminders.map(String) : [],
       remindersGlobal: Array.isArray(d.remindersGlobal) ? d.remindersGlobal.map(String) : [],
     };
