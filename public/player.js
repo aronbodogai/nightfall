@@ -57,6 +57,14 @@ function onMsg(m) {
 function act(a) { net.send({ t: 'act', act: a }); }
 function pill(cls, text) { return `<span class="pill ${cls}">${esc(text)}</span>`; }
 function pillH(cls, html) { return `<span class="pill ${cls}">${html}</span>`; } // html must already be escaped
+// Characters this phone knows about (its own, the script, Travellers, Fabled, the end-of-game reveal), in its language.
+window.roleLookup = (id) => {
+  if (!V) return null;
+  const sc = V.script || {};
+  const all = [V.me && V.me.role, ...(sc.roles || []), ...(sc.travellers || []), ...(sc.fabled || []), ...(V.seats || []).map(s => s.traveller)];
+  return locRole(all.find(r => r && r.id === id) || null);
+};
+window.jinxLookup = () => (V && V.script && V.script.jinxes) || [];
 const myRole = () => locRole(V.me.role);
 
 function render() {
@@ -98,7 +106,7 @@ function render() {
   if (!hostOnline) top += `<div class="banner small">${t('Storyteller is offline: waiting to reconnect.')}</div>`;
   if (V.winner) {
     top += `<div class="banner ${V.winner}"><h2>${esc(tx(V.announce))}</h2>
-      ${(V.reveal || []).map(r => `<div class="row" style="margin-top:4px"><span class="grow">${esc(r.name)}</span>${pillH(r.team, roleArt(r, r.evil, 'xs') + ' ' + esc(fmtVar(r.role)))}${r.thought ? pill('', t('thought {role}', { role: r.thought })) : ''}</div>`).join('')}</div>`;
+      ${(V.reveal || []).map(r => `<div class="row" style="margin-top:4px"><span class="grow">${esc(r.name)}</span>${pillH(r.team, roleArt(r, r.evil, 'xs') + ' ' + esc(fmtVar(r.role)) + infoBtn(r.rid))}${r.thought ? pill('', t('thought {role}', { role: r.thought })) : ''}</div>`).join('')}</div>`;
   }
   else if (V.phase === 'night') top += `<div class="banner small">🌙 ${esc(tx(V.announce))} ${V.prompt ? `<b>${t('The Storyteller is asking you to choose.')}</b>` : t('Keep your eyes closed until woken.')}</div>`;
   if (V.prompt && !sheet) top += `<button class="primary block" style="margin-bottom:12px" data-a="openPrompt">${t('Make your choice')}</button>`;
@@ -139,9 +147,9 @@ function viewScript() {
     if (!list.length) return '';
     return `<div class="card"><h3>${teamLabel(team, true)}</h3>${list.map(r => `
       <div class="roleline ${r.id === mine && reveal ? 'mine' : ''}"><div class="ri">${roleArt(r)}</div>
-        <div><b>${esc(r.name)}</b><div class="small muted">${esc(r.ability)}</div></div></div>`).join('')}</div>`;
+        <div><b>${esc(r.name)}</b>${infoBtn(r.id)}<div class="small muted">${esc(r.ability)}</div></div></div>`).join('')}</div>`;
   }).join('');
-  const line = (r) => `<div class="roleline"><div class="ri">${roleArt(r)}</div><div><b>${esc(r.name)}</b><div class="small muted">${esc(r.ability)}</div></div></div>`;
+  const line = (r) => `<div class="roleline"><div class="ri">${roleArt(r)}</div><div><b>${esc(r.name)}</b>${infoBtn(r.id)}<div class="small muted">${esc(r.ability)}</div></div></div>`;
   const fabled = (sc.fabled || []).map(locRole);
   const travellers = (sc.travellers || []).map(locRole);
   const rules = (sc.bootlegger || []).length || (sc.jinxes || []).length || fabled.length ? `<div class="card" style="border-color:var(--accent)"><h3>${t('Special rules in this game')}</h3>
@@ -184,7 +192,7 @@ function viewRole() {
   if (!r) return `<div class="card center muted">${t('No character yet.')}</div>`;
   const side = V.me.evil ? 'evil' : 'good';
   const card = reveal
-    ? `<div class="rolecard ${side}" data-a="hide"><div class="big">${roleArt(r, V.me.evil, 'lg')}</div><div class="rname">${esc(r.name)}</div>
+    ? `<div class="rolecard ${side}" data-a="hide"><div class="big">${roleArt(r, V.me.evil, 'lg')}</div><div class="rname">${esc(r.name)}${infoBtn(r.id)}</div>
         <div style="margin:6px 0">${pill(r.team, teamLabel(r.team))} ${pill(side, side === 'evil' ? t('Evil') : t('Good'))}</div>
         <p>${esc(r.ability)}</p><p class="small muted">${t('Tap to hide')}</p></div>`
     : `<div class="rolecard hidden" data-a="show"><div><div style="font-size:2.4rem">🂠</div><b>${t('Tap to reveal your character')}</b><div class="small muted">${t('Make sure nobody is looking')}</div></div></div>`;

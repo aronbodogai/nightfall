@@ -106,3 +106,43 @@ window.SETUP = {
   10: [7, 0, 2, 1], 11: [7, 1, 2, 1], 12: [7, 2, 2, 1], 13: [9, 0, 3, 1], 14: [9, 1, 3, 1], 15: [9, 2, 3, 1],
 };
 window.setupFor = (n) => window.SETUP[Math.min(15, Math.max(5, n))];
+
+// ---------- character info card ----------
+// Any character name can carry a small ⓘ button; tapping it opens a card with the character's ability.
+// Each page sets window.roleLookup(id) (and optionally window.jinxLookup()) to find characters it knows.
+window.infoBtn = (id) => (id ? `<span class="info" role="button" tabindex="0" data-info="${String(id).replace(/[^a-z0-9_-]/gi, '')}" aria-label="${esc(t('About this character'))}">i</span>` : '');
+window.openRoleInfo = (id) => {
+  const r = window.roleLookup && window.roleLookup(id);
+  if (!r) return;
+  const jinxes = ((window.jinxLookup && window.jinxLookup()) || []).filter(j => j.a === id || j.b === id);
+  const old = document.getElementById('roleinfo'); if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'roleinfo';
+  el.className = 'sheet-bg';
+  el.innerHTML = `<div class="sheet infocard" data-stop="1">
+    <div class="row"><div class="grow"></div><button class="sm ghost" data-close="1" aria-label="${esc(t('Close card'))}">✕</button></div>
+    <div class="center"><div class="infoart">${roleArt(r, null, 'lg')}</div>
+      <h2 style="margin:6px 0 4px">${esc(r.name)}</h2>
+      <span class="pill ${r.team}">${esc(teamLabel(r.team))}</span></div>
+    <p style="font-size:1.05rem;margin:14px 0 0">${esc(r.ability || '')}</p>
+    ${jinxes.length ? `<div class="small" style="margin-top:12px"><b>${esc(t('Jinxes:'))}</b>${jinxes.map(j => `<div style="margin-top:4px">⚡ <b>${esc(j.aName)} + ${esc(j.bName)}</b>${j.reason ? ': ' + esc(j.reason) : ''}</div>`).join('')}</div>` : ''}
+  </div>`;
+  document.body.appendChild(el);
+};
+// Capture phase, so the tap opens the card and never reaches the button or card it sits in.
+window.addEventListener('click', (e) => {
+  const box = document.getElementById('roleinfo');
+  if (box && box.contains(e.target)) {
+    e.stopPropagation();
+    if (e.target === box || e.target.closest('[data-close]')) box.remove();
+    return;
+  }
+  const b = e.target.closest && e.target.closest('[data-info]');
+  if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  openRoleInfo(b.dataset.info);
+}, true);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { const box = document.getElementById('roleinfo'); if (box) box.remove(); return; }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.dataset && e.target.dataset.info) { e.preventDefault(); openRoleInfo(e.target.dataset.info); }
+}, true);

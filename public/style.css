@@ -127,3 +127,13 @@ img.art.xs { width: 1.3em; height: 1.3em; margin: -2px 0; }
 img.art.sm { width: 40px; height: 40px; margin: -6px 2px -6px -4px; }
 .roleline .ri img.art { width: 40px; height: 40px; }
 img.art.lg { width: 140px; height: 140px; }
+
+/* character info button + card */
+.info { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; flex: none;
+  border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font: italic 700 12px/1 Georgia, serif; cursor: pointer; vertical-align: middle; }
+.info:hover, .info:focus { color: var(--accent); border-color: var(--accent); outline: none; }
+.pill .info { width: 16px; height: 16px; font-size: 10px; margin-left: 4px; }
+#roleinfo { z-index: 40; }
+.infocard { max-width: 520px; }
+.infoart img.art.lg { width: 120px; height: 120px; }
+.infoart { font-size: 3.4rem; line-height: 1; }

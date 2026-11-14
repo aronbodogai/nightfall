@@ -289,6 +289,8 @@ Object.assign(window.I18N.hu, {
   'Library source:': 'Könyvtár forrása:',
   'your own files': 'saját fájlok',
   'More scripts: build one in the official Script Tool or find one on botcscripts.com, then download its JSON and load it here.': 'További forgatókönyvek: készíts egyet a hivatalos Script Toolban, vagy keress a botcscripts.com oldalon, majd töltsd le a JSON-t és töltsd be itt.',
+  'About this character': 'A szereplőről',
+  'Close card': 'Bezárás',
   'Official scripts': 'Hivatalos forgatókönyvek',
   'Community scripts (official release)': 'Közösségi forgatókönyvek (hivatalos kiadás)',
   'Import': 'Importálás',
