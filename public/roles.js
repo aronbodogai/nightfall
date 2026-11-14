@@ -119,8 +119,8 @@ window.openRoleInfo = (id) => {
   const el = document.createElement('div');
   el.id = 'roleinfo';
   el.className = 'sheet-bg';
-  el.innerHTML = `<div class="sheet infocard" data-stop="1">
-    <div class="row"><div class="grow"></div><button class="sm ghost" data-close="1" aria-label="${esc(t('Close card'))}">✕</button></div>
+  el.innerHTML = `<div class="infocard ${isEvilTeam(r.team) ? 'evil' : r.team === 'fabled' || r.team === 'loric' ? 'neutral' : 'good'}" role="dialog" aria-modal="true">
+    <button class="sm ghost infoclose" data-close="1" aria-label="${esc(t('Close card'))}">✕</button>
     <div class="center"><div class="infoart">${roleArt(r, null, 'lg')}</div>
       <h2 style="margin:6px 0 4px">${esc(r.name)}</h2>
       <span class="pill ${r.team}">${esc(teamLabel(r.team))}</span></div>

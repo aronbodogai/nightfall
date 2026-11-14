@@ -133,7 +133,17 @@ img.art.lg { width: 140px; height: 140px; }
   border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font: italic 700 12px/1 Georgia, serif; cursor: pointer; vertical-align: middle; }
 .info:hover, .info:focus { color: var(--accent); border-color: var(--accent); outline: none; }
 .pill .info { width: 16px; height: 16px; font-size: 10px; margin-left: 4px; }
-#roleinfo { z-index: 40; }
-.infocard { max-width: 520px; }
-.infoart img.art.lg { width: 120px; height: 120px; }
-.infoart { font-size: 3.4rem; line-height: 1; }
+#roleinfo { z-index: 40; align-items: center; padding: 16px; backdrop-filter: blur(3px); }
+.infocard { position: relative; width: 100%; max-width: 380px; max-height: 86dvh; overflow: auto; padding: 22px 20px 20px;
+  border-radius: 20px; border: 1px solid var(--line); text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+  background: radial-gradient(120% 70% at 50% 0%, var(--glow, #2a2433) 0%, var(--panel) 62%); animation: infopop .16s ease-out; }
+.infocard.good { --glow: #1b2c48; border-color: #2c4670; }
+.infocard.evil { --glow: #43191c; border-color: #6a2a2e; }
+.infocard.neutral { --glow: #3a2f12; border-color: #6b5626; }
+.infocard p { text-align: left; line-height: 1.5; }
+.infocard .small { text-align: left; }
+.infoclose { position: absolute; top: 10px; right: 10px; }
+.infoart { font-size: 3.6rem; line-height: 1; margin-top: 4px; }
+.infoart img.art.lg { width: 128px; height: 128px; filter: drop-shadow(0 6px 14px rgba(0,0,0,.5)); }
+@keyframes infopop { from { transform: scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .infocard { animation: none; } }
