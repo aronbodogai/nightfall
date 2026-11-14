@@ -1,0 +1,605 @@
+{
+  "scripts": [
+    {
+      "id": "witchhunt",
+      "name": "Witch Hunt",
+      "author": "Nick B",
+      "description": "A Lil' Monsta script where all evil characters are Witches! The Djinn rule both incentivizes good players to nominate in order to limit the evil team's options, and also deters them by threatening extra deaths.",
+      "rule": "All Minions are Witches. Nominated Demons can not move tonight.",
+      "url": "https://beardytas.com/garden-of-djinn/witch-hunt/"
+    },
+    {
+      "id": "buyersremorse",
+      "name": "Buyer's Remorse",
+      "author": "mist",
+      "description": "A humble merchant has come to peddle their wares at the very same time an evil Demon haunts your village. Can capitalism save these townsfolk? Or will they succumb to the foibles of greed? Recommended to stay on script for abilities, but ST's choice.",
+      "rule": "Players have 7 gold. Each day, an ability is auctioned; highest unique bidder gains it until dawn, even if dead. Bids are not returned (bar evil ties) & secret.",
+      "url": "https://www.notion.so/Buyer-s-Remorse-1c97a8a09a8480ba8c1df194481f826a?pvs=4"
+    },
+    {
+      "id": "deadcouncil",
+      "name": "Council of the Dead",
+      "author": "Ember",
+      "description": "The script's goal to have limited confirmation, giving the dead a harder decision on who to give the boon. The boon given is up to ST discretion, so while it is meant to help, don't be afraid to balance its strength based on which team is winning.",
+      "rule": "At the start of N4, dead wake together for 2 min, then secretly vote on a living player (if there's no majority, the ST chooses). The chosen player gets a boon.",
+      "url": "https://beardytas.com/garden-of-djinn/council-of-the-dead/"
+    },
+    {
+      "id": "djinnsbargain",
+      "name": "The Djinn's Bargain",
+      "author": "Phil (phillyCHEEEEEZ)",
+      "description": "This script explores power and sacrifice. Nominators may choose to die to let their nominee use their ability twice before dusk tomorrow. Players must weigh empowering allies against the cost of their life, creating high-stakes decisions and tension.",
+      "rule": "Nominators may choose to die after making a nomination. If they do, their nominee's ability works twice until dusk tomorrow.",
+      "url": "https://beardytas.com/garden-of-djinn/the-djinns-bargain/"
+    },
+    {
+      "id": "wonders",
+      "name": "Show Me Wonders",
+      "author": "DinosaurSatan",
+      "description": "The existence of the Al-Hadikhia is kept secret. Roles were added to account for the deaths at night of players who chose to live. Roles that benefit from revival will create dilemmas for both teams but are great to bluff as for evil.",
+      "rule": "Each night*, all players secretly choose in advance to live or die if they were to be chosen by the Al-Hadikhia. Al-Hadikhia choices are not announced.",
+      "url": "https://beardytas.com/garden-of-djinn/show-me-wonders/"
+    },
+    {
+      "id": "trainedkiller",
+      "name": "Trained Killer",
+      "author": "Ekin",
+      "description": "This script determines a kill order for the two Demons who normally kill via the ST. It is intentionally out of SAO and the order is carefully constructed to work with the Djinn rule. Demon works down the list but might retarget players who survive.",
+      "rule": "Each night*, the Demon attacks the next living in-play character(s) in script order. Characters who survive might get reattacked.",
+      "url": "https://beardytas.com/garden-of-djinn/trained-killer/"
+    },
+    {
+      "id": "phantomdetectives",
+      "name": "The Phantom Detectives",
+      "author": "schnauzer",
+      "description": "Townsfolk who die become powerful ghosts who commune with the living to solve their own murder. The evil team may keep powerful Townsfolk alive to deny them info, and good characters will be angling to get killed at a critical moment.",
+      "rule": "Dead players (not Demons) keep their abilities. Each Townsfolk loses their ability at the start of night 1, then regains it on death.",
+      "url": "https://schnauzerclub.neocities.org/scripts/thephantomdetectives"
+    },
+    {
+      "id": "1daymore",
+      "name": "One Day More",
+      "author": "Robe",
+      "description": "An S&V style script: strong info disrupted by outsiders/evil. Djinn means info is delayed by 24 hours. So the Widow call goes out Night 2; HP learns yesterday’s name; a Sage gets info the night after they die (and can be poisoned if they out), etc.",
+      "rule": "Signal Failure: There is a 24 hour delay impacting all characters with abilities that know or learn information.",
+      "url": "https://beardytas.com/garden-of-djinn/one-day-more/"
+    },
+    {
+      "id": "stowedaway",
+      "name": "Stowed Away",
+      "author": "CaffeineBoost",
+      "description": "A script where Travellers can go in the bag. It's Sentinel on steroids. Bluff Deviant as the DA, bluff Mutant as Scapegoat, you can secretly have 2 Cerenovuses (do not have 2 DA's). Fun on all player sizes (including 10 & 13).",
+      "rule": "Up to 2 recommended travellers might be in the bag & the player count lowers accordingly. Travellers are not announced, executions & exiles are equivalent.",
+      "url": "https://beardytas.com/garden-of-djinn/stowed-away/"
+    },
+    {
+      "id": "offwizard",
+      "name": "Off to See the Wizard",
+      "author": "Crispy Duck",
+      "description": "This script is about solving wizard wishes, it encourages a subtle wizard or a minion to bluff the Djinn ability. It gives starting ability characters a reason to stay alive. Wizard clues can be more subtle too.",
+      "rule": "If a Wizard is in play 1 good player knows & each day, while alive, may privately guess the wizard wish & learn how accurate they are if a wish has been made.",
+      "url": "https://beardytas.com/garden-of-djinn/off-to-see-the-wizard/"
+    },
+    {
+      "id": "deadpeople",
+      "name": "I See Dead People",
+      "author": "A terrifying wizard",
+      "description": "This script plays with something that players normally know for certain- whether they are alive or dead.  Voting is risky, the demon can hide in new ways and new ways to lie emerge. Characters like the chambermaid and poisoner find new uses.",
+      "rule": "Characters die as normal but the storyteller doesn’t announce deaths.  Dead players can nominate.  Poisoned players don’t wake up",
+      "url": "https://beardytas.com/garden-of-djinn/i-see-dead-people/"
+    },
+    {
+      "id": "riverstyx",
+      "name": "The River Styx",
+      "author": "Rhea",
+      "description": "This script contains reasons for minions to play more freely as outed evil, knowing that they can make extra plays from the grave. Good players can counter with their own dead votes, but use too many and the Demon may not restore the votes!",
+      "rule": "The Ferryman's ability is amended to: Each night* the demon may choose if all dead players regain their vote token.",
+      "url": "https://beardytas.com/garden-of-djinn/the-river-styx/"
+    },
+    {
+      "id": "beautifulhouse",
+      "name": "This Is Not My Beautiful House",
+      "author": "James Waumsley (aka JC)",
+      "description": "The Amnesiac can sometimes be feels-bad for town if you can't get the ability. Here, the Amne is meant to be scary, because you know you're messing up town but not how. The script is boilerplate to let the ST have options how to wield the ability.",
+      "rule": "The Amnesiac is considered an Outsider character type.",
+      "url": "https://beardytas.com/garden-of-djinn/this-is-not-my-beautiful-house/"
+    },
+    {
+      "id": "binarysupernovae",
+      "name": "Binary Supernovae",
+      "author": "Hystrex",
+      "description": "Binary Supernovae is the \"Duo Boss\" of clocktower. 2 Demons work together to crush town, playing around each others' unique strengths & weaknesses. They might even kill each other! Town wins by finding a single Demon, but will they have enough time?",
+      "rule": "If a Demon dies by execution, good wins. Summoner only removes 1 Demon. [+1 Demon]",
+      "url": "https://beardytas.com/garden-of-djinn/binary-supernovae/"
+    },
+    {
+      "id": "warrens",
+      "name": "The Warrens",
+      "author": "Zets (Lachlan)",
+      "description": "A script where the Demon can escape threats by jumping around via nominations. Legion swapping does nothing, but Legion can take advantage of paranoia around the custom rule to push for executions. ",
+      "rule": "If 5 or more players live, evil players who nominate other living evil players (not Travellers) immediately swap characters.",
+      "url": "https://beardytas.com/garden-of-djinn/the-warrens/"
+    },
+    {
+      "id": "seat7",
+      "name": "The Ballad of Seat 7",
+      "author": "TrashWarlock",
+      "description": "Created in collaboration with the Strings server. Seat 7 is here to save you from a teensy and add some mystery to your already unsolvable game.",
+      "rule": "Seat 7 remains empty. Its choices are arbitrary. Once per game, the storyteller may speak on its behalf.",
+      "url": "https://beardytas.com/garden-of-djinn/the-ballad-of-seat-7/"
+    }
+  ],
+  "channels": [
+    {
+      "name": "TPI Wednesday Stream",
+      "logo": "https://release.botc.app/wc25/tpi-wed.webp",
+      "url": "https://www.twitch.tv/thepandemoniuminstitute",
+      "description": "The official Twitch channel for The Pandemonium Institute and the home of online Blood on the Clocktower.",
+      "time": "Wednesdays 7pm AEDT / 8am UK"
+    },
+    {
+      "name": "Noobs on the Gooftower",
+      "logo": "https://release.botc.app/wc25/notg.webp",
+      "url": "https://www.youtube.com/@NoobsontheGooftower",
+      "description": "Noobs on the Gooftower is a lively crew of funny people playing Blood on the Clocktower with an emphasis on fun over winning. We stream every Tuesday at 2pm Pacific unless our host Chris Grace has a job, which is not very often!",
+      "time": "Tuesdays 2pm Pacific / 9pm UK"
+    },
+    {
+      "name": "Grim Scenarios",
+      "logo": "https://release.botc.app/wc25/grimscenarios.webp",
+      "url": "https://www.twitch.tv/grimscenarios",
+      "description": "Grim Scenarios welcomes Blood on the Clocktower players and other gamers alike to join our community, where inclusivity and kindness are at the heart of everything we do. Whether you're a seasoned player or trying to figure out what the heck is going on (or maybe both!) everyone can enjoy playing games and learning together.",
+      "time": "Tuesdays 8pm EDT / Midnight UK"
+    },
+    {
+      "name": "General Clonktower",
+      "logo": "https://release.botc.app/wc25/genclonk.webp",
+      "url": "https://www.twitch.tv/genclonk",
+      "description": "Former Gen Con stream, now the unmarked mom & pop shop that all the locals know is the best place to get a carbonara.",
+      "time": "Sunday 8am AEDT"
+    },
+    {
+      "name": "The Grimoire",
+      "logo": "https://release.botc.app/wc25/thegrim.webp",
+      "url": "https://www.twitch.tv/thegrimgg",
+      "description": "The Grimoire is a community focused on offering as many people the chance to experience Blood on the Clocktower as possible! We currently run curated events in both US and EU timezones, with many focused on teaching the game to new players.",
+      "time": "Saturday 1pm PST"
+    },
+    {
+      "name": "TPI Sunday Stream",
+      "logo": "https://release.botc.app/wc25/tpi-sun.webp",
+      "url": "https://www.twitch.tv/thepandemoniuminstitute",
+      "description": "The official Twitch channel for The Pandemonium Institute and the home of online Blood on the Clocktower.",
+      "time": "Sundays 8pm EDT / Midnight UK"
+    },
+    {
+      "name": "TPI Thursday Stream",
+      "logo": "https://release.botc.app/wc25/tpi-thu.webp",
+      "url": "https://www.twitch.tv/thepandemoniuminstitute",
+      "description": "The official Twitch channel for The Pandemonium Institute and the home of online Blood on the Clocktower.",
+      "time": "Thursdays 8pm UK"
+    },
+    {
+      "name": "PattersTTV",
+      "logo": "https://release.botc.app/wc25/patters.webp",
+      "url": "https://www.twitch.tv/pattersttv",
+      "description": "\"Brainiac: Science Abuse\" meets \"Blood on the Clocktower\". Expect bold claims, haywire choices and good times!",
+      "time": "Wednesday 7pm UK"
+    },
+    {
+      "name": "Arif_A_",
+      "logo": "https://release.botc.app/wc25/arif.webp",
+      "url": "https://www.twitch.tv/arif_a_",
+      "description": "Arif's not doing a podcast",
+      "time": "Wednesday 7pm UK"
+    }
+  ],
+  "matches": [
+    {
+      "scripts": [
+        0,
+        1
+      ],
+      "channel": 6,
+      "time": 1741896000000,
+      "link": "https://www.youtube.com/watch?v=Nrhw8oRMs_I",
+      "results": [
+        47,
+        53
+      ]
+    },
+    {
+      "scripts": [
+        2,
+        3
+      ],
+      "channel": 5,
+      "time": 1742166000000,
+      "link": "https://www.youtube.com/watch?v=lwhfKjzZy8I",
+      "results": [
+        40,
+        60
+      ]
+    },
+    {
+      "scripts": [
+        4,
+        5
+      ],
+      "channel": 0,
+      "time": 1742371200000,
+      "link": "https://www.youtube.com/watch?v=U-F-Vcv6CGo",
+      "results": [
+        51,
+        49
+      ]
+    },
+    {
+      "scripts": [
+        6,
+        7
+      ],
+      "channel": 6,
+      "time": 1742500800000,
+      "link": "https://www.youtube.com/watch?v=PX4Xs56srWs",
+      "results": [
+        86,
+        14
+      ]
+    },
+    {
+      "scripts": [
+        8,
+        9
+      ],
+      "channel": 4,
+      "time": 1742673600000,
+      "link": "https://www.youtube.com/watch?v=a1jcsyRFktk",
+      "results": [
+        86,
+        14
+      ]
+    },
+    {
+      "scripts": [
+        10,
+        11
+      ],
+      "channel": 1,
+      "time": 1742936400000,
+      "link": "https://www.youtube.com/watch?v=oMfRFVAF9Og",
+      "results": [
+        43,
+        57
+      ]
+    },
+    {
+      "scripts": [
+        12,
+        13
+      ],
+      "channel": 6,
+      "time": 1743105600000,
+      "link": "https://www.youtube.com/watch?v=OQu0rpolllU",
+      "results": [
+        42,
+        58
+      ]
+    },
+    {
+      "scripts": [
+        14,
+        15
+      ],
+      "channel": 3,
+      "time": 1743282000000,
+      "link": "https://www.youtube.com/watch?v=-4356bhlpkA",
+      "results": [
+        31,
+        69
+      ]
+    },
+    {
+      "scripts": [
+        0,
+        2
+      ],
+      "channel": 2,
+      "time": 1743548400000,
+      "link": "https://www.youtube.com/watch?v=KmEV_6o0za4",
+      "results": [
+        63,
+        37
+      ]
+    },
+    {
+      "scripts": [
+        1,
+        3
+      ],
+      "channel": 6,
+      "time": 1743706800000,
+      "link": "https://www.youtube.com/watch?v=vQFqSV1d7J0",
+      "results": [
+        60,
+        40
+      ]
+    },
+    {
+      "scripts": [
+        4,
+        6
+      ],
+      "channel": 5,
+      "time": 1743980400000,
+      "link": "https://www.twitch.tv/videos/2426057240",
+      "results": [
+        31,
+        69
+      ]
+    },
+    {
+      "scripts": [
+        8,
+        10
+      ],
+      "channel": 0,
+      "time": 1744189200000,
+      "link": "https://www.twitch.tv/videos/2428092833",
+      "results": [
+        78,
+        22
+      ]
+    },
+    {
+      "scripts": [
+        9,
+        11
+      ],
+      "channel": 6,
+      "time": 1744311600000,
+      "link": "https://www.youtube.com/watch?v=nZCfN9x-vco",
+      "results": [
+        42,
+        58
+      ]
+    },
+    {
+      "scripts": [
+        5,
+        7
+      ],
+      "channel": 4,
+      "time": 1744488000000,
+      "link": "https://www.youtube.com/watch?v=vTHhmcXmKp8",
+      "results": [
+        81,
+        19
+      ]
+    },
+    {
+      "scripts": [
+        12,
+        14
+      ],
+      "channel": 1,
+      "time": 1744740000000,
+      "link": "https://www.youtube.com/watch?v=lgvWBdfxNBI",
+      "results": [
+        48,
+        52
+      ]
+    },
+    {
+      "scripts": [
+        13,
+        15
+      ],
+      "channel": 6,
+      "time": 1744916400000,
+      "link": "https://www.youtube.com/watch?v=m1v2Tu2z6hE",
+      "results": [
+        41,
+        59
+      ]
+    },
+    {
+      "scripts": [
+        4,
+        7
+      ],
+      "channel": 2,
+      "time": 1745362800000,
+      "link": "https://www.twitch.tv/videos/2440030619",
+      "results": [
+        78,
+        22
+      ]
+    },
+    {
+      "scripts": [
+        0,
+        3
+      ],
+      "channel": 3,
+      "time": 1745611200000,
+      "link": "https://www.youtube.com/watch?v=ZQt_ftSN5vE",
+      "results": [
+        43,
+        57
+      ]
+    },
+    {
+      "scripts": [
+        1,
+        2
+      ],
+      "channel": 0,
+      "time": 1746003600000,
+      "link": "https://www.twitch.tv/videos/2446459794",
+      "results": [
+        74,
+        26
+      ]
+    },
+    {
+      "scripts": [
+        5,
+        6
+      ],
+      "channel": 6,
+      "time": 1746126000000,
+      "link": "https://www.youtube.com/watch?v=BhTmg0XTYp4",
+      "results": [
+        47,
+        53
+      ]
+    },
+    {
+      "scripts": [
+        8,
+        11
+      ],
+      "channel": 5,
+      "time": 1746399600000,
+      "link": "https://www.twitch.tv/videos/2450547498",
+      "results": [
+        77,
+        23
+      ]
+    },
+    {
+      "scripts": [
+        9,
+        10
+      ],
+      "channel": 1,
+      "time": 1746478800000,
+      "link": "https://www.youtube.com/watch?v=JA-jZIUbi-I",
+      "results": [
+        58,
+        42
+      ]
+    },
+    {
+      "scripts": [
+        12,
+        15
+      ],
+      "channel": 6,
+      "time": 1746730800000,
+      "link": "https://www.twitch.tv/videos/2453673943",
+      "results": [
+        36,
+        64
+      ]
+    },
+    {
+      "scripts": [
+        13,
+        14
+      ],
+      "channel": 7,
+      "time": 1747245600000,
+      "link": "https://www.youtube.com/watch?v=DIfF0-GggjU",
+      "results": [
+        62,
+        38
+      ]
+    }
+  ],
+  "playoffs": [
+    {
+      "scripts": [
+        1,
+        5
+      ],
+      "channel": 4,
+      "time": 1747512000000,
+      "link": "https://www.youtube.com/watch?v=L3jlOSukJX8",
+      "results": [
+        53,
+        47
+      ]
+    },
+    {
+      "scripts": [
+        8,
+        13
+      ],
+      "channel": 5,
+      "time": 1748214000000,
+      "link": "https://www.twitch.tv/videos/2468428391",
+      "results": [
+        67,
+        33
+      ]
+    },
+    {
+      "scripts": [
+        6,
+        3
+      ],
+      "channel": 2,
+      "time": 1747782000000,
+      "link": "https://www.twitch.tv/videos/2464069053",
+      "results": [
+        58,
+        42
+      ]
+    },
+    {
+      "scripts": [
+        15,
+        11
+      ],
+      "channel": 7,
+      "time": 1748455200000,
+      "link": "https://www.twitch.tv/videos/2470786654",
+      "results": [
+        78,
+        22
+      ]
+    },
+    {
+      "scripts": [
+        1,
+        8
+      ],
+      "channel": 3,
+      "time": 1751054400000,
+      "link": "https://www.youtube.com/watch?v=sHjSEtKPPDA",
+      "results": [
+        47,
+        53
+      ]
+    },
+    {
+      "scripts": [
+        6,
+        15
+      ],
+      "channel": 8,
+      "time": 1751194800000,
+      "link": "https://www.youtube.com/watch?v=HiNizPCj0EI",
+      "results": [
+        46,
+        54
+      ]
+    },
+    {
+      "scripts": [
+        8,
+        15
+      ],
+      "channel": 6,
+      "time": 1752174000000,
+      "link": "https://www.youtube.com/watch?v=dQdPRKXkQgw",
+      "results": [
+        45,
+        55
+      ]
+    }
+  ],
+  "votePeriod": 432000000
+}

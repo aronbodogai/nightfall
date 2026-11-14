@@ -88,6 +88,9 @@ window.TEAM_ICON = { townsfolk: '🏠', outsider: '🌀', minion: '🗡️', dem
 
 // Character art: r.image is a list of image URLs ([good/default, evil]). Falls back to the team emoji
 // when there is no art or it can't load (e.g. a local network without internet).
+// Official files are mirrored in /official (see scripts/sync-official.mjs); use that copy, the original as fallback.
+window.OFFICIAL_SITE = 'https://release.botc.app/';
+window.mirrorUrl = (u) => (String(u).startsWith(OFFICIAL_SITE) ? 'official/' + String(u).slice(OFFICIAL_SITE.length) : u);
 window.roleArt = (r, evil, cls) => {
   if (!r) return '';
   const imgs = (r.image || []).filter(u => /^https?:\/\//.test(u));
@@ -95,7 +98,9 @@ window.roleArt = (r, evil, cls) => {
   const ev = evil == null ? isEvilTeam(r.team) : evil;
   const src = ev && imgs[1] ? imgs[1] : imgs[0];
   const q = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-  return `<img class="art ${cls || ''}" src="${q(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-f="${q(r.icon || '')}" onerror="this.insertAdjacentText('afterend',this.dataset.f);this.remove()">`;
+  const local = mirrorUrl(src);
+  // On error: try the original URL once (if the local copy is missing), then show the team emoji.
+  return `<img class="art ${cls || ''}" src="${q(local)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-f="${q(r.icon || '')}"${local !== src ? ` data-r="${q(src)}"` : ''} onerror="if(this.dataset.r){this.src=this.dataset.r;delete this.dataset.r}else{this.insertAdjacentText('afterend',this.dataset.f);this.remove()}">`;
 };
 window.TEAM_LABEL = { townsfolk: 'Townsfolk', outsider: 'Outsider', minion: 'Minion', demon: 'Demon' };
 window.isEvilTeam = (team) => team === 'minion' || team === 'demon';

@@ -1067,6 +1067,8 @@ function buildSheet() {
         <div class="grid2">${officialScripts.map(s => `<button class="scriptbtn" data-a="importOfficialScript" data-id="${esc(s.id)}" ${sheet.busy ? 'disabled' : ''}>${esc(s.name)}${s.author ? `<span>${esc(s.author)}</span>` : ''}</button>`).join('')}</div>` : officialScripts ? `<p class="small muted">${t('Loading the official script list…')}</p>` : ''}
       <p class="small muted">${sheet.busy ? t('Downloading…') + ' ' : ''}${t('Downloaded from The Pandemonium Institute\'s public release (release.botc.app) together with the official character list, night order and jinxes. Blood on the Clocktower is © The Pandemonium Institute; this app is unofficial community content.')}</p>
       <p class="small muted" style="margin:4px 0 0">${t('Sources:')} ${[['roles.json', '/resources/data/roles.json'], ['nightsheet.json', '/resources/data/nightsheet.json'], ['jinxes.json', '/resources/data/jinxes.json'], [t('community script list'), '/wc25/data.json']].map(([n, u]) => `<a href="${OFFICIAL + u}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(n)}</a>`).join(' · ')}</p>
+      <p class="small muted" style="margin:4px 0 0">${mirrorInfo ? t('Using this app\'s own copy (synced {date}, release {commit}); release.botc.app is the fallback.', { date: new Date(mirrorInfo.syncedAt).toLocaleDateString(), commit: String(mirrorInfo.commit).slice(0, 7) }) : t('No local copy found: downloading from release.botc.app.')}</p>
+      <div class="row" style="gap:10px;margin-top:8px;align-items:center"><img src="official/resources/community/ccc-sleeve.png" alt="Community Created Content" style="height:44px;width:auto" onerror="this.remove()"><a class="small" href="official/NOTICE.md" target="_blank" rel="noopener" style="color:var(--accent)">${t('Licence notice')}</a></div>
       ${sheet.offErr ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.offErr))}</p>` : ''}
       <hr>
       <h3>${t('Your own script')}</h3>
@@ -1132,10 +1134,20 @@ function sourceLine(src) {
 // The Pandemonium Institute publishes these files for community toolmakers (release.botc.app, CORS-open).
 // Nothing official ships with the app: it is downloaded on request and saved on this device.
 const OFFICIAL = 'https://release.botc.app';
+// Reads an official file from this app's own copy (public/official), falling back to release.botc.app.
+async function fetchOfficial(path) {
+  try { return await ScriptImport.fetchText('official' + path); } catch { return ScriptImport.fetchText(OFFICIAL + path); }
+}
+let mirrorInfo; // { commit, syncedAt } of the local copy, or null when there is none
+function loadMirrorInfo() {
+  if (mirrorInfo !== undefined) return;
+  mirrorInfo = null;
+  fetch('official/manifest.json').then(r => (r.ok ? r.json() : null)).then(m => { mirrorInfo = m; if (sheet && sheet.type === 'import') renderSheet(); }).catch(() => {});
+}
 const EDITIONS = [['tb', 'Trouble Brewing'], ['bmr', 'Bad Moon Rising'], ['snv', 'Sects & Violets']];
 let officialScripts = null; // [{id, name, author}] from the official script list, loaded when the sheet opens
 async function loadOfficialLibrary() {
-  const get = (f) => ScriptImport.fetchText(OFFICIAL + '/resources/data/' + f).then(ScriptImport.parseLibrary);
+  const get = (f) => fetchOfficial('/resources/data/' + f).then(ScriptImport.parseLibrary);
   const [roles, ns, jx] = await Promise.all([get('roles.json'), get('nightsheet.json'), get('jinxes.json')]);
   const lib = { roles: roles.data, nightsheet: ns.data, jinxes: jx.data, source: 'official', at: Date.now() };
   store.set('nf_library', lib);
@@ -1148,7 +1160,7 @@ async function officialLib() {
 function loadOfficialScriptList() {
   if (officialScripts) return;
   officialScripts = [];
-  ScriptImport.fetchText(OFFICIAL + '/wc25/data.json').then(txt => {
+  fetchOfficial('/wc25/data.json').then(txt => {
     const d = JSON.parse(txt);
     officialScripts = (d.scripts || []).map(s => ({ id: String(s.id).replace(/[^a-z0-9]/gi, ''), name: s.name, author: s.author }));
     if (sheet && sheet.type === 'import') renderSheet();
@@ -1165,7 +1177,7 @@ async function importOfficial(kind, id) {
       src = { label: 'release.botc.app · roles.json (edition "' + id + '")', url: OFFICIAL + '/resources/data/roles.json' };
     } else {
       src = { url: OFFICIAL + '/wc25/' + id + '/script.json', label: 'release.botc.app/wc25/' + id + '/script.json' };
-      json = await ScriptImport.fetchText(src.url);
+      json = await fetchOfficial('/wc25/' + id + '/script.json');
     }
     useScript(parseScript(json, lib), src);
   } catch (e) {
@@ -1280,7 +1292,7 @@ document.addEventListener('click', (e) => {
       S.phase = 'setup'; render(); store.set('nf_host_state', S); break;
     }
     case 'randomRoles': randomSelection(); S.phase = 'setup'; save(); break;
-    case 'openImport': sheet = { type: 'import' }; loadOfficialScriptList(); renderSheet(); break;
+    case 'openImport': sheet = { type: 'import' }; loadOfficialScriptList(); loadMirrorInfo(); renderSheet(); break;
     case 'importEdition': importOfficial('edition', d.id); break;
     case 'importOfficialScript': if (d.id) importOfficial('script', d.id); break;
     case 'importOfficialLibrary': importOfficialLibrary(); break;

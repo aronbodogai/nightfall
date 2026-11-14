@@ -109,6 +109,14 @@ optional `_meta` object (`name`, `author`, `almanac`, `bootlegger`, `firstNight`
 and characters as plain ids, deprecated `{ "id": … }` objects, or full custom characters. Ids are
 normalised (lowercase, letters and digits only) and `traveler` is read as `traveller`.
 
+**Local copy of the official release**: `public/official/` mirrors The Pandemonium Institute's
+toolmaker release (character list, night sheet, jinxes, character icons, edition logos, and the
+community scripts with their logos and art; the printable PDFs are left out). The app reads this copy
+first and falls back to release.botc.app, so it keeps working if that site changes or goes down, and on
+a Wi-Fi without internet. Refresh it with `node scripts/sync-official.mjs`, which records the release
+commit in `public/official/manifest.json`. These files are © The Pandemonium Institute and the script
+authors, and are not covered by the MIT license; see `public/official/NOTICE.md`.
+
 **Official scripts in one tap**: the import sheet has buttons for Trouble Brewing, Bad Moon Rising and
 Sects & Violets, and a list of the community scripts in the official release. These download The
 Pandemonium Institute's published toolmaker files from `release.botc.app` (character list, night sheet,
