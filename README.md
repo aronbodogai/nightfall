@@ -109,9 +109,16 @@ optional `_meta` object (`name`, `author`, `almanac`, `bootlegger`, `firstNight`
 and characters as plain ids, deprecated `{ "id": … }` objects, or full custom characters. Ids are
 normalised (lowercase, letters and digits only) and `traveler` is read as `traveller`.
 
+**Official scripts in one tap**: the import sheet has buttons for Trouble Brewing, Bad Moon Rising and
+Sects & Violets, and a list of the community scripts in the official release. These download The
+Pandemonium Institute's published toolmaker files from `release.botc.app` (character list, night sheet,
+jinxes) at the moment you tap; nothing official is bundled in this repository. A script with jinxes
+brings in the Djinn automatically. Blood on the Clocktower is © The Pandemonium Institute; this is
+unofficial community content under their Community Created Content Policy.
+
 The app ships no official character data. Scripts that list only ids need a **character library**
-that you load yourself (from a file, URL or paste). It can hold three kinds of file, detected
-automatically:
+(the **Load official library** button fills it from the release, or load your own from a file, URL or
+paste). It can hold three kinds of file, detected automatically:
 
 - a character list (`id`, `name`, `team`, `ability`, `firstNight`, `otherNight`, `…Reminder`,
   `reminders`, `remindersGlobal`, `setup`, `jinxes`),

@@ -1042,6 +1042,15 @@ function renderSheet() {
     const jxN = Object.keys(lib.jinxes || {}).length;
     $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
       <div class="row"><h2 class="grow">${t('Import a script')}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
+      <h3>${t('Official scripts')}</h3>
+      <div class="grid3">${EDITIONS.map(([id, name]) => `<button class="primary" data-a="importEdition" data-id="${id}" ${sheet.busy ? 'disabled' : ''}>${esc(name)}</button>`).join('')}</div>
+      ${officialScripts && officialScripts.length ? `<label>${t('Community scripts (official release)')}</label>
+        <div class="row" style="gap:6px"><select id="offScript" class="grow">${officialScripts.map(s => `<option value="${esc(s.id)}">${esc(s.name)}${s.author ? ' · ' + esc(s.author) : ''}</option>`).join('')}</select>
+        <button data-a="importOfficialScript" ${sheet.busy ? 'disabled' : ''}>${t('Import')}</button></div>` : ''}
+      <p class="small muted">${sheet.busy ? t('Downloading…') + ' ' : ''}${t('Downloaded from The Pandemonium Institute\'s public release (release.botc.app) together with the official character list, night order and jinxes. Blood on the Clocktower is © The Pandemonium Institute; this app is unofficial community content.')}</p>
+      ${sheet.offErr ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.offErr))}</p>` : ''}
+      <hr>
+      <h3>${t('Your own script')}</h3>
       <p class="small muted">${t('Paste or load the JSON exported by an online script builder: a list like')}
         <code>[{"id":"_meta","name":"…"}, "characterid", {…}]</code>.
         ${t('Custom characters with their own name/team/ability work as-is. Plain ids need a character library (below).')}</p>
@@ -1058,6 +1067,7 @@ function renderSheet() {
       <label>${t('…or a file')}</label><input type="file" accept=".json,application/json" data-ch="file" data-target="libText">
       <label>${t('…or paste JSON')}</label><textarea id="libText"></textarea>
       ${sheet.libErr ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.libErr))}</p>` : ''}
+      <button class="block" style="margin-top:8px" data-a="importOfficialLibrary" ${sheet.busy ? 'disabled' : ''}>${lib.source === 'official' ? t('Update official library') : t('Load official library')}</button>
       <div class="grid2" style="margin-top:8px"><button data-a="clearLibrary" ${lib.roles.length || nsN || jxN ? '' : 'disabled'}>${t('Clear library')}</button><button class="good" data-a="importLibrary" ${sheet.busy ? 'disabled' : ''}>${t('Import library')}</button></div>
     </div></div>`;
   }
@@ -1090,12 +1100,76 @@ async function readSource({ url, text }) {
   if (url) return ScriptImport.fetchText(url);
   throw new Error('Paste JSON, choose a file, or enter a URL.');
 }
+// ---------- official data ----------
+// The Pandemonium Institute publishes these files for community toolmakers (release.botc.app, CORS-open).
+// Nothing official ships with the app: it is downloaded on request and saved on this device.
+const OFFICIAL = 'https://release.botc.app';
+const EDITIONS = [['tb', 'Trouble Brewing'], ['bmr', 'Bad Moon Rising'], ['snv', 'Sects & Violets']];
+let officialScripts = null; // [{id, name, author}] from the official script list, loaded when the sheet opens
+async function loadOfficialLibrary() {
+  const get = (f) => ScriptImport.fetchText(OFFICIAL + '/resources/data/' + f).then(ScriptImport.parseLibrary);
+  const [roles, ns, jx] = await Promise.all([get('roles.json'), get('nightsheet.json'), get('jinxes.json')]);
+  const lib = { roles: roles.data, nightsheet: ns.data, jinxes: jx.data, source: 'official', at: Date.now() };
+  store.set('nf_library', lib);
+  return lib;
+}
+async function officialLib() {
+  const lib = libStore();
+  return lib.source === 'official' && lib.roles.length ? lib : loadOfficialLibrary();
+}
+function loadOfficialScriptList() {
+  if (officialScripts) return;
+  officialScripts = [];
+  ScriptImport.fetchText(OFFICIAL + '/wc25/data.json').then(txt => {
+    const d = JSON.parse(txt);
+    officialScripts = (d.scripts || []).map(s => ({ id: String(s.id).replace(/[^a-z0-9]/gi, ''), name: s.name, author: s.author }));
+    if (sheet && sheet.type === 'import') renderSheet();
+  }).catch(() => { officialScripts = null; });
+}
+async function importOfficial(kind, id) {
+  sheet.busy = true; sheet.offErr = ''; renderSheet();
+  try {
+    const lib = await officialLib();
+    let json;
+    if (kind === 'edition') {
+      const name = (EDITIONS.find(e => e[0] === id) || [id, id])[1];
+      json = [{ id: '_meta', name, author: 'The Pandemonium Institute' }, ...lib.roles.filter(r => r.edition === id).map(r => r.id)];
+    } else {
+      json = await ScriptImport.fetchText(OFFICIAL + '/wc25/' + id + '/script.json');
+    }
+    useScript(parseScript(json, lib));
+  } catch (e) {
+    sheet.busy = false; sheet.offErr = e.message; renderSheet();
+  }
+}
+async function importOfficialLibrary() {
+  sheet.busy = true; sheet.libErr = ''; renderSheet();
+  try {
+    const lib = await loadOfficialLibrary();
+    toast(t('Official library saved: {n} characters.', { n: lib.roles.length }));
+  } catch (e) { sheet.libErr = e.message; }
+  sheet.busy = false; renderSheet();
+}
+
 async function importScript() {
   const src = sourceOf('scriptUrl', 'scriptText');
   sheet.url = src.url; sheet.text = src.text;
   sheet.busy = true; sheet.err = ''; renderSheet();
   try {
-    const parsed = ScriptImport.parse(await readSource(src), libStore());
+    useScript(parseScript(await readSource(src), libStore()));
+  } catch (e) {
+    sheet.busy = false; sheet.err = e.message; renderSheet();
+  }
+}
+// Official rule: a script with jinxed pairs has the Djinn in play. Add it from the library when the script doesn't list it.
+function parseScript(json, lib) {
+  const parsed = ScriptImport.parse(json, lib);
+  if (!parsed.jinxes.length || parsed.fabled.some(r => r.id === 'djinn') || !(lib.roles || []).some(r => ScriptImport.normId(r.id) === 'djinn')) return parsed;
+  const data = typeof json === 'string' ? JSON.parse(json) : json;
+  return Array.isArray(data) ? ScriptImport.parse([...data, 'djinn'], lib) : parsed;
+}
+function useScript(parsed) {
+  {
     S.script = parsed; applyScript();
     S.selection = []; S.dealt = false; S.bluffs = [];
     // Jinxed pairs on the script bring the Djinn into play, if the library defines it.
@@ -1103,8 +1177,6 @@ async function importScript() {
     log(L('Script imported: {name} ({n} characters).', { name: parsed.name, n: parsed.roles.length }));
     toast(t('Imported "{name}": {n} characters', { name: parsed.name, n: parsed.roles.length }) + (parsed.missing.length ? ', ' + t('{n} unknown', { n: parsed.missing.length }) : ''));
     sheet = null; save();
-  } catch (e) {
-    sheet.busy = false; sheet.err = e.message; renderSheet();
   }
 }
 async function importLibrary() {
@@ -1177,7 +1249,10 @@ document.addEventListener('click', (e) => {
       S.phase = 'setup'; render(); store.set('nf_host_state', S); break;
     }
     case 'randomRoles': randomSelection(); S.phase = 'setup'; save(); break;
-    case 'openImport': sheet = { type: 'import' }; renderSheet(); break;
+    case 'openImport': sheet = { type: 'import' }; loadOfficialScriptList(); renderSheet(); break;
+    case 'importEdition': importOfficial('edition', d.id); break;
+    case 'importOfficialScript': { const id = document.getElementById('offScript').value; if (id) importOfficial('script', id); break; }
+    case 'importOfficialLibrary': importOfficialLibrary(); break;
     case 'toggleTraveller': {
       const i = S.travellerPids.indexOf(d.pid);
       if (i >= 0) S.travellerPids.splice(i, 1); else S.travellerPids.push(d.pid);
