@@ -1050,8 +1050,7 @@ function renderSheet() {
       <h3>${t('Official scripts')}</h3>
       <div class="grid3">${EDITIONS.map(([id, name]) => `<button class="primary" data-a="importEdition" data-id="${id}" ${sheet.busy ? 'disabled' : ''}>${esc(name)}</button>`).join('')}</div>
       ${officialScripts && officialScripts.length ? `<label>${t('Community scripts (official release)')}</label>
-        <div class="row" style="gap:6px"><select id="offScript" class="grow">${officialScripts.map(s => `<option value="${esc(s.id)}">${esc(s.name)}${s.author ? ' · ' + esc(s.author) : ''}</option>`).join('')}</select>
-        <button data-a="importOfficialScript" ${sheet.busy ? 'disabled' : ''}>${t('Import')}</button></div>` : ''}
+        <div class="grid2">${officialScripts.map(s => `<button class="scriptbtn" data-a="importOfficialScript" data-id="${esc(s.id)}" ${sheet.busy ? 'disabled' : ''}>${esc(s.name)}${s.author ? `<span>${esc(s.author)}</span>` : ''}</button>`).join('')}</div>` : officialScripts ? `<p class="small muted">${t('Loading the official script list…')}</p>` : ''}
       <p class="small muted">${sheet.busy ? t('Downloading…') + ' ' : ''}${t('Downloaded from The Pandemonium Institute\'s public release (release.botc.app) together with the official character list, night order and jinxes. Blood on the Clocktower is © The Pandemonium Institute; this app is unofficial community content.')}</p>
       <p class="small muted" style="margin:4px 0 0">${t('Sources:')} ${[['roles.json', '/resources/data/roles.json'], ['nightsheet.json', '/resources/data/nightsheet.json'], ['jinxes.json', '/resources/data/jinxes.json'], [t('community script list'), '/wc25/data.json']].map(([n, u]) => `<a href="${OFFICIAL + u}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(n)}</a>`).join(' · ')}</p>
       ${sheet.offErr ? `<p class="small" style="color:var(--evil)">${esc(t(sheet.offErr))}</p>` : ''}
@@ -1269,7 +1268,7 @@ document.addEventListener('click', (e) => {
     case 'randomRoles': randomSelection(); S.phase = 'setup'; save(); break;
     case 'openImport': sheet = { type: 'import' }; loadOfficialScriptList(); renderSheet(); break;
     case 'importEdition': importOfficial('edition', d.id); break;
-    case 'importOfficialScript': { const id = document.getElementById('offScript').value; if (id) importOfficial('script', id); break; }
+    case 'importOfficialScript': if (d.id) importOfficial('script', d.id); break;
     case 'importOfficialLibrary': importOfficialLibrary(); break;
     case 'toggleTraveller': {
       const i = S.travellerPids.indexOf(d.pid);
