@@ -833,6 +833,7 @@ function viewGrim() {
           ${p.role === 'sentinel' && p.sentinelUsed ? pill('', t('used')) : ''}${p.role === 'lucky' && p.luckyUsed ? pill('', t('luck used')) : ''}
           ${p.role === 'duelist' && p.duelUsed ? pill('', t('duel used')) : ''}${p.role === 'hollow' && p.hollowUsed ? pill('', t('double used')) : ''}</div></div>
       </div>`).join('')}</div>
+    <button class="block" data-a="openNightOrder" style="margin-bottom:10px">📋 ${t('Night order cheat sheet')}</button>
     <div class="card small">${t('Bluffs given to Demon:')} ${S.bluffs.map(rolePill).join(' ')}</div>
     ${rulesCard(false)}
     ${S.phase === 'over' ? `<button class="primary block" data-a="newGame">${t('New game with same players')}</button>` : ''}`;
@@ -843,6 +844,53 @@ function playerChips(st, max) {
     const on = st.choice.includes(x.pid);
     return `<button class="sm ${on ? 'primary' : ''}" data-a="hostChoose" data-key="${esc(st.key)}" data-pid="${x.pid}" data-max="${max}">${x.alive ? '' : '💀'}${esc(x.name)}</button>`;
   }).join('')}</div>`;
+}
+
+// ---------- night order cheat sheet ----------
+// The full wake order for the first night and for every later night, for the characters on the script.
+// Characters in play are highlighted (with who plays them); the rest can be hidden.
+function nightOrderRows(first) {
+  const mk = (S.script && S.script.markers && S.script.markers[first ? 'first' : 'other']) || {};
+  const inPlay = {};
+  if (S.locked) for (const p of seatList()) { const id = shownRole(p); if (id) (inPlay[id] = inPlay[id] || []).push(p); }
+  else for (const id of S.selection) inPlay[id] = [];
+  const rows = [];
+  if (mk.dusk != null) rows.push({ kind: 'dusk', order: -1e9 });
+  if (first) {
+    rows.push({ kind: 'minion_info', order: mk.minioninfo != null ? mk.minioninfo : -2 });
+    rows.push({ kind: 'demon_info', order: mk.demoninfo != null ? mk.demoninfo : -1 });
+  }
+  for (const r of ROLES) {
+    const n = first ? r.first : r.other;
+    if (!n) continue;
+    rows.push({ kind: 'role', r, n, order: n.order, players: inPlay[r.id] || [], inPlay: r.id in inPlay });
+  }
+  rows.sort((a, b) => a.order - b.order);
+  rows.push({ kind: 'dawn', order: 1e9 });
+  return rows;
+}
+function nightOrderBody(sh) {
+  const first = sh.first, only = sh.only;
+  const bigEnough = (S.locked ? bagPlayers() : seatList().filter(p => !isTraveller(p))).length >= 7;
+  let n = 0;
+  const html = nightOrderRows(first).map(row => {
+    if (row.kind === 'dusk') return `<div class="step"><b>${t('🌆 Dusk')}</b></div>`;
+    if (row.kind === 'dawn') return `<div class="step"><b>${t('🌅 Dawn')}</b> <span class="small muted">${t('Everyone wakes; announce the deaths.')}</span></div>`;
+    if (row.kind === 'minion_info' || row.kind === 'demon_info') {
+      const m = row.kind === 'minion_info';
+      return `<div class="step"><div class="row"><b class="grow">${m ? t('😈 Minions wake & learn the Demon') : t('👹 Demon wakes: learns Minions + 3 bluffs')}</b>${bigEnough ? '' : pill('warn', t('needs 7+ players'))}</div></div>`;
+    }
+    if (only && !row.inPlay) return '';
+    const dim = !row.inPlay;
+    const dead = row.players.length && row.players.every(p => !p.alive);
+    n += 1;
+    const rem = row.n.reminder || '';
+    return `<div class="step ${dim || (!first && dead) ? 'done' : ''}"><div class="row"><span class="seat">${n}</span>
+      <b class="grow">${roleArt(row.r, null, 'sm')} ${esc(row.r.name)}${infoBtn(row.r.id)}</b>
+      ${row.players.map(p => pill(p.alive ? 'good' : 'dead', (p.alive ? '' : '💀 ') + p.name)).join(' ')}${dim && !only ? pill('', t('not in play')) : ''}</div>
+      <div class="small muted" style="margin-top:4px">${esc(rem || row.r.ability)}</div></div>`;
+  }).join('');
+  return html || `<p class="muted">${t('Nothing yet.')}</p>`;
 }
 
 function viewNight() {
@@ -899,7 +947,7 @@ function viewNight() {
     }
     return `<div class="step ${cur ? 'current' : ''} ${done ? 'done' : ''}" ${!cur ? `data-a="gotoStep" data-i="${i}"` : ''}><div class="row"><b class="grow">${head}</b>${done ? '✓' : ''}</div>${cur || (done && body && st.kind === 'role') ? body : ''}</div>`;
   }).join('');
-  return `<div class="card small muted">${t('Night {n}. Players should keep eyes closed; wake each in order (tap "Ask player" to put the choice on their phone).', { n: S.night })} ${S.debtorNight ? `<br><b>${t('Debtor executed: Demon may kill twice tonight.')}</b>` : ''}</div>${steps}`;
+  return `<div class="card small muted"><button class="sm block" style="margin-bottom:8px" data-a="openNightOrder">📋 ${t('Night order cheat sheet')}</button>${t('Night {n}. Players should keep eyes closed; wake each in order (tap "Ask player" to put the choice on their phone).', { n: S.night })} ${S.debtorNight ? `<br><b>${t('Debtor executed: Demon may kill twice tonight.')}</b>` : ''}</div>${steps}`;
 }
 
 function viewDay() {
@@ -970,6 +1018,8 @@ function viewMore() {
     ${S.locked && S.phase !== 'over' ? `<div class="card stack"><h2>${t('Phase control')}</h2>
       <div class="grid2"><button data-a="forceNight">${t('Jump to night')}</button><button data-a="forceDay">${t('Jump to day')}</button></div>
       <div class="grid2"><button class="good" data-a="win" data-side="good">${t('Good wins')}</button><button class="danger" data-a="win" data-side="evil">${t('Evil wins')}</button></div></div>` : ''}
+    <div class="card stack"><h2>${t('Night order')}</h2><p class="small muted">${t('Who wakes, and in what order, on the first night and on every later night.')}</p>
+      <button class="block" data-a="openNightOrder">📋 ${t('Night order cheat sheet')}</button></div>
     <div class="card stack"><h2>${t('Rules')}</h2>
       <div class="row"><div class="grow"><b>${t('Ghost votes')}</b><div class="small muted">${gv
         ? t('On (official rule): each dead player may vote once more for the rest of the game.')
@@ -1034,6 +1084,16 @@ function buildSheet() {
       <label>${t('Alignment (secret; usually good)')}</label><select id="stAlign"><option value="good">${t('Good')}</option><option value="evil">${t('Evil')}</option></select>
       <label>${t('Sits after')}</label><select id="stAfter">${seatList().map(x => `<option value="${x.pid}">${esc(x.name)}</option>`).join('')}</select>
       <button class="primary block" style="margin-top:12px" data-a="seatTraveller" data-pid="${p.pid}" ${tr.length ? '' : 'disabled'}>${t('Seat as Traveller')}</button>
+    </div></div>`;
+  } else if (sheet.type === 'nightOrder') {
+    $sheet.innerHTML = `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-stop="1">
+      <div class="row"><h2 class="grow">${t('Night order')}</h2><button class="sm ghost" data-a="closeSheet">✕</button></div>
+      <div class="grid2" style="margin:8px 0">
+        <button class="${sheet.first ? 'primary' : ''}" data-a="nightOrderSet" data-first="1">${t('First night')}</button>
+        <button class="${sheet.first ? '' : 'primary'}" data-a="nightOrderSet" data-first="0">${t('Other nights')}</button></div>
+      <div class="row small" style="margin-bottom:8px"><span class="grow muted">${sheet.first ? t('Wake in this order on the first night.') : t('Wake in this order on every night after the first (dead characters are skipped).')}</span>
+        <button class="sm ${sheet.only ? 'primary' : ''}" data-a="nightOrderOnly">${sheet.only ? t('Only in play') : t('Whole script')}</button></div>
+      ${nightOrderBody(sheet)}
     </div></div>`;
   } else if (sheet.type === 'endDay') {
     const ranked = S.nominations.slice().sort((a, b) => b.votes - a.votes);
@@ -1386,6 +1446,9 @@ document.addEventListener('click', (e) => {
       S.vote = null; S.announce = L('Vote cancelled.'); save();
     } break;
     case 'closeVote': closeVote(); break;
+    case 'openNightOrder': sheet = { type: 'nightOrder', first: S.locked && S.phase !== 'over' ? S.night <= 1 : true, only: S.locked }; renderSheet(); break;
+    case 'nightOrderSet': sheet.first = d.first === '1'; renderSheet(); break;
+    case 'nightOrderOnly': sheet.only = !sheet.only; renderSheet(); break;
     case 'openEndDay': if (S.vote) toast(t('Close the open vote first.')); else { sheet = { type: 'endDay' }; renderSheet(); } break;
     case 'endDay': sheet = null; endDay(d.mode); break;
     case 'toggleNoms': {
