@@ -149,3 +149,6 @@ img.art.lg { width: 140px; height: 140px; }
 @media (prefers-reduced-motion: reduce) { .infocard { animation: none; } }
 .scriptbtn { display: flex; flex-direction: column; align-items: flex-start; text-align: left; line-height: 1.2; min-height: 52px; }
 .scriptbtn span { font-size: 11px; opacity: .65; font-weight: 400; margin-top: 2px; }
+.netbanner { position: fixed; left: 12px; right: 12px; top: 12px; z-index: 50; display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.5); font-size: 14px; }
+.netbanner[hidden] { display: none; }

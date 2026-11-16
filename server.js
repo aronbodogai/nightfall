@@ -69,10 +69,13 @@ function wsAccept(req, socket) {
     if (!conn.alive) return;
     try { socket.write(frame(0x1, Buffer.from(JSON.stringify(obj)))); } catch { /* ignore */ }
   }
-  function close() {
+  // code: 4000 replaced by another tab/device, 4001 kicked (clients don't reconnect after these)
+  function close(code) {
     if (!conn.alive) return;
     conn.alive = false;
-    try { socket.end(frame(0x8, Buffer.alloc(0))); } catch { /* ignore */ }
+    let payload = Buffer.alloc(0);
+    if (code) { payload = Buffer.alloc(2); payload.writeUInt16BE(code, 0); }
+    try { socket.end(frame(0x8, payload)); } catch { /* ignore */ }
     if (conn.onclose) conn.onclose();
   }
   socket.on('data', (chunk) => {
@@ -144,7 +147,7 @@ server.on('upgrade', (req, socket) => {
     if (m.t === 'host_resume') {
       const r = rooms.get(String(m.room || '').toUpperCase());
       if (!r || r.hostToken !== m.hostToken) return conn.send({ t: 'error', code: 'no_room', msg: 'Room not found on server.' });
-      if (r.host && r.host !== conn) r.host.close();
+      if (r.host && r.host !== conn) r.host.close(4000);
       room = r; room.host = conn; role = 'host';
       conn.send({ t: 'resumed', room: room.code, players: presence(room) });
       return hostStatus(room);
@@ -162,7 +165,7 @@ server.on('upgrade', (req, socket) => {
       }
       if (m.t === 'kick') {
         const p = room.players.get(m.pid);
-        if (p) { if (p.conn) { p.conn.send({ t: 'kicked' }); p.conn.close(); } room.players.delete(m.pid); }
+        if (p) { if (p.conn) { p.conn.send({ t: 'kicked' }); p.conn.close(4001); } room.players.delete(m.pid); }
         return pushPresence(room);
       }
       if (m.t === 'rename') {
@@ -185,7 +188,7 @@ server.on('upgrade', (req, socket) => {
         p = { pid: id(4), name, token: id(), conn: null, view: null, late: !!(r.state && r.state.locked) };
         r.players.set(p.pid, p);
       }
-      if (p.conn && p.conn !== conn) p.conn.close();
+      if (p.conn && p.conn !== conn) p.conn.close(4000);
       p.conn = conn; player = p;
       conn.send({ t: 'joined', pid: p.pid, token: p.token, room: r.code, name: p.name, late: !!p.late });
       conn.send({ t: 'host_status', online: !!(r.host && r.host.alive) });

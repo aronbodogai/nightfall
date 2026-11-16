@@ -295,6 +295,8 @@ Object.assign(window.I18N.hu, {
   "Using this app's own copy (synced {date}, release {commit}); release.botc.app is the fallback.": 'Az alkalmazás saját másolatát használja (szinkronizálva: {date}, kiadás: {commit}); tartalék: release.botc.app.',
   'No local copy found: downloading from release.botc.app.': 'Nincs helyi másolat: letöltés a release.botc.app oldalról.',
   'Licence notice': 'Licencnyilatkozat',
+  'This game is open in another tab or device.': 'Ez a játék egy másik lapon vagy eszközön is nyitva van.',
+  'Use it here': 'Itt használom',
   'Official scripts': 'Hivatalos forgatókönyvek',
   'Community scripts (official release)': 'Közösségi forgatókönyvek (hivatalos kiadás)',
   'Import': 'Importálás',
