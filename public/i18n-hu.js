@@ -84,6 +84,21 @@ Object.assign(window.I18N.hu, {
   'Bluffs given to Demon:': 'A démonnak adott blöffök:',
   'New game with same players': 'Új játék ugyanezekkel a játékosokkal',
 
+  // ---- éjszakai sorrend (segédlet) ----
+  'Night order': 'Éjszakai sorrend',
+  'Night order cheat sheet': 'Éjszakai sorrend – segédlet',
+  'First night': 'Első éjszaka',
+  'Other nights': 'Többi éjszaka',
+  'Wake in this order on the first night.': 'Az első éjszakán ebben a sorrendben ébreszd őket.',
+  'Wake in this order on every night after the first (dead characters are skipped).': 'Az első utáni minden éjszakán ebben a sorrendben ébreszd őket (a halott szereplőket kihagyod).',
+  'Only in play': 'Csak a játékban lévők',
+  'Whole script': 'A teljes szkript',
+  '🌆 Dusk': '🌆 Alkonyat',
+  'Everyone wakes; announce the deaths.': 'Mindenki felébred; jelentsd be a halottakat.',
+  'needs 7+ players': '7+ játékos kell hozzá',
+  'not in play': 'nincs játékban',
+  'Who wakes, and in what order, on the first night and on every later night.': 'Ki ébred fel, és milyen sorrendben az első éjszakán és minden későbbi éjszakán.',
+
   // ---- éjszaka ----
   'Not night.': 'Nincs éjszaka.',
   '😈 Minions wake & learn the Demon': '😈 A csatlósok felébrednek és megtudják, ki a démon',

@@ -80,6 +80,10 @@ over Bluetooth, see `PLAN.md`.)
 - Drunk/poisoned, alignment changes, "thinks they are…" and reminder tokens in the grimoire.
 - Fabled/Loric (shown to everyone when in play), bootlegger rules and jinxes from imported scripts.
 
+**Night order cheat sheet**: the 📋 button on the Night, Grimoire and More tabs opens the full wake order for the
+first night and for the other nights (Dusk, Minion/Demon info, every character, Dawn). It shows who plays each
+character, greys out dead ones, and can hide characters that are not in play.
+
 The Grimoire tab lets the Storyteller override anything (character, alignment, alive, ghost vote,
 drunk/poisoned, reminders) and send private messages. Refreshing either page is safe: the host's state is saved on
 its device, and players reconnect automatically.
